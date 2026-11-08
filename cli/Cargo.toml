@@ -1,0 +1,22 @@
+[package]
+name = "norea-cli"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "NoREA command line: norea-verify (third-party verifier) and norea (dev tool). I/O only, no logic."
+
+[[bin]]
+name = "norea-verify"
+path = "src/bin/norea-verify.rs"
+
+[[bin]]
+name = "norea"
+path = "src/bin/norea.rs"
+
+[dependencies]
+noreacore = { path = "../core" }
+
+# Argument parsing and --help. default-features = false drops color/suggestions
+# (terminal detection deps); derive is used for the subcommand structs.
+clap = { version = "4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }

@@ -1,0 +1,51 @@
+[package]
+name = "noreacore"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Platform-agnostic NoREA core: table parsing, canary marking, ML-DSA-65 evidence, check, disclosure"
+
+[lib]
+crate-type = ["rlib"]
+
+# Rule: no RNG, network, file I/O, key storage or clock in this crate (CONTEXT.md invariant 2).
+# Crypto crates are pinned with `=`. default-features = false unless a comment says why not.
+
+[dependencies]
+# FIPS 204 ML-DSA-65 signing/verification, pure Rust. Pinned: pre-1.0, unaudited.
+# default-features = false drops `getrandom` and `pkcs8`: core never generates randomness.
+ml-dsa = { version = "=0.1.2", default-features = false }
+
+# Derive (de)serialization for evidence/disclosure structs.
+serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
+
+# JSON input tables and evidence documents. `arbitrary_precision` keeps number text exactly
+# as written so canon_row/serialize can reproduce it byte for byte (WP-01, ADR-0013).
+# `preserve_order` keeps nested object key order in JSON output (ADR-0013); canon sorts explicitly.
+serde_json = { version = "1.0.154", default-features = false, features = ["std", "arbitrary_precision", "preserve_order"] }
+
+# SHA-256: Merkle leaves, evidence_id, anchor subject, marked file hash.
+sha2 = { version = "=0.11.1", default-features = false }
+
+# HMAC-SHA256: deterministic canary draws from K_d (shape-v1 §5.1).
+hmac = { version = "=0.13.0", default-features = false }
+
+# HKDF-SHA256: K -> K_d -> K_blob key derivation (evidence-v1 §2).
+hkdf = { version = "=0.13.0", default-features = false }
+
+# Base64 for signature, key and blob fields in JSON.
+base64 = { version = "0.23.1", default-features = false, features = ["alloc"] }
+
+# Encrypted canary blob inside evidence (blob AEAD). Nonce comes from the caller/derivation,
+# never from an RNG: default-features = false drops `getrandom`.
+chacha20poly1305 = { version = "=0.11.0", default-features = false, features = ["alloc"] }
+
+# Wipe K, seed, K_d, K_blob after use (ADR-0012).
+zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
+
+# NFC normalization for check-time matching and canary collision avoidance (shape-v1 §7.1). canon_row does NOT normalize.
+unicode-normalization = { version = "0.1.26", default-features = false, features = ["std"] }
+
+# Field order preserving row map (table::Row).
+indexmap = { version = "2.14.2", default-features = false, features = ["std"] }

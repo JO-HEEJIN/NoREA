@@ -1,0 +1,9 @@
+target/
+/web/public/pkg
+node_modules
+/tests/node_modules
+*.marked.*
+*.evidence.json
+*.disclosure.json
+norea-key-backup*.json
+.DS_Store

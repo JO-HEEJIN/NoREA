@@ -1,0 +1,9 @@
+{
+  "name": "norea-tests",
+  "private": true,
+  "type": "module",
+  "description": "Test-only dependencies. Nothing here ships to users.",
+  "devDependencies": {
+    "fake-indexeddb": "^6.0.0"
+  }
+}

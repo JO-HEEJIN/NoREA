@@ -1,0 +1,47 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: wasm-bindgen-cli matching Cargo.lock
+        run: |
+          WBV=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep version | head -1 | cut -d'"' -f2)
+          cargo install wasm-bindgen-cli --version "$WBV" --locked
+      - name: scripts/test.sh
+        run: ./scripts/test.sh
+      - name: getrandom must be absent from the browser wasm tree
+        run: |
+          N=$(cargo tree -p norea-web --target wasm32-unknown-unknown | grep -c getrandom || true)
+          echo "getrandom count: $N"
+          test "$N" = "0"
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check

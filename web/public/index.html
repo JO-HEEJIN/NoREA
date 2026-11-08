@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>NoREA: 데이터 복제 증명</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<h1>NoREA</h1>
+<p>공개하는 <strong>우리 데이터</strong>에 눈에 띄지 않는 표식(canary)을 넣고, 양자내성 서명(ML-DSA-65)으로 증거를 남깁니다.
+누군가 베껴 가면 표식이 따라가므로 복제를 증명할 수 있습니다. 모든 처리는 이 브라우저 안에서만 일어나며 파일은 서버로 가지 않습니다.</p>
+<p id="status" role="status" aria-live="polite"></p>
+
+<section>
+  <h2>1. 서명키</h2>
+  <p id="keyinfo"></p>
+  <label for="pass">패스프레이즈 <small>(비워 두면 Face ID·Touch ID·Windows Hello 등 패스키를 씁니다)</small></label>
+  <input id="pass" type="password" autocomplete="new-password">
+  <button id="setup">서명키 만들기</button>
+  <label for="backupfile">백업에서 복원</label>
+  <input id="backupfile" type="file" accept="application/json">
+  <button id="restore">복원</button>
+</section>
+
+<section>
+  <h2>2. 데이터 보호하기</h2>
+  <label for="dataset">공개할 데이터셋 (JSON 배열)</label>
+  <input id="dataset" type="file" accept="application/json">
+  <label for="dsid">데이터셋 ID <small>(예: b2d_geo/parcels/2026-11)</small></label>
+  <input id="dsid" type="text" value="b2d_geo/parcels/2026-11">
+  <label for="registry">실제 주소 목록 <small>(선택. 문자열 JSON 배열. canary가 실제 지번과 겹치지 않게 합니다. 이 파일도 브라우저 밖으로 나가지 않습니다)</small></label>
+  <input id="registry" type="file" accept="application/json">
+  <label for="n">canary 개수 <small>(8~256)</small></label>
+  <input id="n" type="number" value="32" min="8" max="256">
+  <button id="protect">보호하기</button>
+</section>
+
+<section>
+  <h2>3. 의심 사본 대조하기</h2>
+  <label for="suspect">의심되는 사본 (JSON 또는 HTML)</label>
+  <input id="suspect" type="file">
+  <label for="evidence">해당 데이터셋의 evidence.json</label>
+  <input id="evidence" type="file" accept="application/json">
+  <button id="check">대조하기</button>
+  <pre id="report"></pre>
+</section>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+[package]
+name = "norea-web"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Browser bindings for noreacore. Type conversion and zeroize only, no logic."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+noreacore = { path = "../core" }
+
+# JS bindings. Pinned to the exact version the wasm-bindgen CLI must match (Cargo.lock).
+# Default `std` feature kept: the bindings run in a std wasm32 target.
+wasm-bindgen = { version = "=0.2.130" }
+
+# JSON strings across the JS boundary (optionsJson, evidenceJson). Same features as core.
+serde_json = { version = "1.0.154", default-features = false, features = ["std", "arbitrary_precision", "preserve_order"] }
+
+# Passphrase fallback KEK (Argon2id) when WebAuthn PRF is unavailable (custody-web-v1).
+# default-features = false drops `getrandom`, `password-hash` and `rayon`: no RNG backend in wasm.
+argon2 = { version = "=0.6.0", default-features = false, features = ["alloc"] }
+
+# Wipe secrets received from JS (Vec<u8>) after use (ADR-0012).
+zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }

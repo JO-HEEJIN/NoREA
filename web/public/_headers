@@ -1,0 +1,10 @@
+# Cloudflare Pages response headers. frame-ancestors only works as a header, not in <meta>.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), publickey-credentials-get=(self), publickey-credentials-create=(self)
+  Cross-Origin-Opener-Policy: same-origin
+
+/pkg/*.wasm
+  Content-Type: application/wasm
