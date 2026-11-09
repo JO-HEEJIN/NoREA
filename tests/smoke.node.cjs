@@ -32,7 +32,7 @@ const ok = (c, m) => { if (!c) { console.error('FAIL:', m); process.exit(1); } p
 const throwsCode = (fn, re) => { try { fn(); return null; } catch (e) { return re.test(String(e.message)) ? e.message : null; } };
 const hexOf = u8 => Buffer.from(u8).toString('hex');
 const hkdf = (ikm, salt, info) => new Uint8Array(crypto.hkdfSync('sha256', ikm, te.encode(salt), info, 32));
-const CODE_RE = /^(BadInput|NoMarker|CanaryExhausted|BadEvidence|BadSignature|BadBlob|BadDisclosure|BadAnchor|ANCHOR_UNAVAILABLE): \S/;
+const CODE_RE = /^(BadInput|NoMarker|CanaryExhausted|BadEvidence|BadSignature|BadBlob|BadDisclosure|BadAnchor): \S/;
 
 // ---------------------------------------------------------------- memory scan
 function memory() { return Buffer.from(pg.__wasm.memory.buffer); }
@@ -200,8 +200,46 @@ const subj = crypto.createHash('sha256').update(Buffer.concat([
   Buffer.from([0x0a]), Buffer.from(ev.sig_b64, 'base64')])).digest('hex');
 ok(pg.anchorSubjectHex(evJson) === subj, 'anchorSubjectHex == SHA-256(payload || 0x0A || sig) computed in JS');
 ok(throwsCode(() => pg.anchorSubjectHex(JSON.stringify({ ...ev, sig_b64: '' })), /^BadEvidence: /), 'anchorSubjectHex(unsigned) -> BadEvidence');
-ok(throwsCode(() => pg.tsaRequest(evJson, new Uint8Array(8)), /^ANCHOR_UNAVAILABLE: anchor not implemented until WP-08$/), 'tsaRequest -> ANCHOR_UNAVAILABLE (WP-08)');
-ok(throwsCode(() => pg.attachAnchor(evJson, '{"kind":"rfc3161"}'), /^ANCHOR_UNAVAILABLE: anchor not implemented until WP-08$/), 'attachAnchor -> ANCHOR_UNAVAILABLE (WP-08)');
+
+// tsaRequest: TimeStampReq DER (RFC 3161 §2.4.1), byte layout as core/src/anchor.rs tests (openssl ts -query -sha256 -cert).
+const reqHex = n => hexOf(pg.tsaRequest(evJson, n));
+const reqHead = (len) => `30${len}0201013031300d060960864801650304020105000420${subj}`;
+ok(reqHex(new Uint8Array(0)) === `${reqHead('39')}0101ff`, 'tsaRequest(no nonce) == SEQ{v1, sha256 imprint of anchor_subject, certReq TRUE} (59 B)');
+const nonce = new Uint8Array([0x75, 0x6a, 0x37, 0x40, 0x58, 0xd0, 0x65, 0x4e]);
+ok(reqHex(nonce) === `${reqHead('43')}0208756a374058d0654e0101ff`, 'tsaRequest(8 B nonce) == openssl layout with nonce INTEGER (69 B)');
+ok(reqHex(new Uint8Array([0x80, 1])).endsWith('0203008001' + '0101ff'), 'tsaRequest: high-bit nonce gets a 0x00 pad (positive INTEGER)');
+ok(throwsCode(() => pg.tsaRequest(evJson, new Uint8Array(33)), /^BadInput: nonce/), 'tsaRequest(33 B nonce) -> BadInput');
+ok(throwsCode(() => pg.tsaRequest(JSON.stringify({ ...ev, sig_b64: '' }), new Uint8Array(8)), /^BadEvidence: /), 'tsaRequest(unsigned) -> BadEvidence');
+
+// attachAnchor. Fixtures: core/tests/fixtures/tsa-response-freetsa.der is for SHA-256("x");
+// tests/fixtures/tsa-response-freetsa-vector-json.der was requested from freetsa.org for the
+// frozen vector json evidence (anchor_subject 318ffa9a...). The TSA chain is not verified.
+const root = path.join(__dirname, '..');
+const foreignResp = fs.readFileSync(path.join(root, 'core', 'tests', 'fixtures', 'tsa-response-freetsa.der'));
+const vecResp = fs.readFileSync(path.join(__dirname, 'fixtures', 'tsa-response-freetsa-vector-json.der'));
+const anchorJson = o => JSON.stringify({ kind: 'rfc3161', tsa_url: 'https://freetsa.org/tsr', fetched_claim: '2026-11-09T04:55:40Z', ...o });
+ok(throwsCode(() => pg.attachAnchor(evJson, anchorJson({ response_b64: foreignResp.toString('base64') })), /^BadAnchor: TSA token imprint does not match/),
+  'attachAnchor(token for another imprint) -> BadAnchor, not attached');
+const vecEv = JSON.stringify(vec.json.evidence);
+const anchored = pg.attachAnchor(vecEv, anchorJson({ response_b64: vecResp.toString('base64') }));
+const aev = JSON.parse(anchored);
+ok(aev.anchors.length === 1 && aev.anchors[0].kind === 'rfc3161' && Object.keys(aev.anchors[0]).join(',') === 'kind,token_b64,tsa_url,fetched_claim',
+  'attachAnchor(vector evidence, matching response) -> one rfc3161 anchor {kind, token_b64, tsa_url, fetched_claim}');
+const { anchors, ...unanchored } = aev;
+ok(JSON.stringify({ ...unanchored, anchors: [] }) === JSON.stringify(vec.json.evidence), 'attachAnchor leaves every signed field unchanged');
+const av = JSON.parse(pg.verifyEvidence(anchored));
+ok(av.signature_ok && av.evidence_id_ok && av.has_anchors && av.anchors[0].imprint_ok === true && av.anchors[0].gen_time === '2026-11-09T04:55:37Z' &&
+  av.anchors[0].chain_verified === false && av.anchors[0].error === null, `anchored vector evidence verifies: imprint_ok, genTime ${av.anchors[0].gen_time}, chain_verified false`);
+const tokB64 = aev.anchors[0].token_b64;
+const again = JSON.parse(pg.attachAnchor(anchored, anchorJson({ token_b64: tokB64 })));
+ok(again.anchors.length === 2 && again.anchors[1].token_b64 === tokB64, 'attachAnchor(token_b64) appends; existing anchors are kept');
+ok(throwsCode(() => pg.attachAnchor(evJson, anchorJson({ token_b64: tokB64 })), /^BadAnchor: TSA token imprint does not match/), 'attachAnchor(vector token onto other evidence) -> BadAnchor');
+ok(throwsCode(() => pg.attachAnchor(vecEv, anchorJson({ token_b64: vecResp.toString('base64') })), /^BadAnchor: /), 'attachAnchor(response passed as token_b64) -> BadAnchor');
+ok(throwsCode(() => pg.attachAnchor(vecEv, anchorJson({ response_b64: vecResp.subarray(0, 100).toString('base64') })), /^BadAnchor: /), 'attachAnchor(truncated response) -> BadAnchor');
+ok(throwsCode(() => pg.attachAnchor(vecEv, anchorJson({ response_b64: '!!' })), /^BadAnchor: anchor bytes are not base64/), 'attachAnchor(not base64) -> BadAnchor');
+ok(throwsCode(() => pg.attachAnchor(vecEv, anchorJson({})), /^BadInput: anchorJson needs exactly one/), 'attachAnchor(no token) -> BadInput');
+ok(throwsCode(() => pg.attachAnchor(vecEv, anchorJson({ kind: 'ots', token_b64: tokB64 })), /^BadInput: anchorJson.kind/), 'attachAnchor(kind ots) -> BadInput');
+ok(throwsCode(() => pg.attachAnchor(vecEv, anchorJson({ tsa_url: '', token_b64: tokB64 })), /^BadInput: anchorJson.tsa_url/), 'attachAnchor(empty tsa_url) -> BadInput');
 
 // ---------------------------------------------------------------- 8. small functions, errors
 ok(pg.sha256Hex(input) === crypto.createHash('sha256').update(input).digest('hex'), 'sha256Hex == node crypto');

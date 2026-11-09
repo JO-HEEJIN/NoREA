@@ -30,7 +30,7 @@ const state = {
   info: null,
   input: null,          // {name, bytes} for Protect
   ins: null,            // InspectResult
-  protected: null,      // {marked, evidenceJson, names}
+  protected: null,      // {marked, evidenceJson, names, anchoredJson}
   lastCheck: null,      // {suspect, suspectName, evidenceJson, evidenceName, report, view}
   disclosureJson: null,
 };
@@ -315,7 +315,7 @@ $('protect-run').addEventListener('click', ev => run(ev.currentTarget, 'protect-
   }
   const s = r.summary;
   const names = T.protectFileNames(state.input.name, s.format);
-  state.protected = { marked: r.marked, evidenceJson: r.evidenceJson, names };
+  state.protected = { marked: r.marked, evidenceJson: r.evidenceJson, names, anchoredJson: null, inputName: state.input.name };
   const sum = clear($('protect-summary'));
   for (const line of [
     `Inserted ${s.canaries} canaries into ${s.rows} original rows (format ${T.formatText(s.format)}).`,
@@ -326,6 +326,7 @@ $('protect-run').addEventListener('click', ev => run(ev.currentTarget, 'protect-
     `evidence file: ${names.evidence}`,
   ]) sum.append(el('p', { text: line }));
   show($('protect-result'), true);
+  renderAnchorBox();
   setStatus('protect-msg', 'Protected. Download both files below.');
 }));
 
@@ -338,6 +339,38 @@ $('protect-save-evidence').addEventListener('click', ev => run(ev.currentTarget,
   const p = state.protected;
   await platform.saveFile(p.names.evidence, te.encode(p.evidenceJson), 'application/json');
   setStatus('protect-msg', `Downloaded ${p.names.evidence}. Keep this file private.`);
+}));
+
+// Time anchor (WP-08). Enabled only when the deployment configures a relay.
+function renderAnchorBox() {
+  const on = Boolean(state.caps?.anchorRelay) && Boolean(state.protected);
+  $('protect-anchor').disabled = !on;
+  $('protect-anchor').textContent = on ? T.TEXT.anchorButton : T.TEXT.anchorButtonOff;
+  $('protect-anchor-text').textContent = state.caps?.anchorRelay ? T.TEXT.anchorReady : T.TEXT.anchorNotConfigured;
+  clear($('protect-anchor-result'));
+  show($('protect-save-anchored'), Boolean(state.protected?.anchoredJson));
+}
+
+$('protect-anchor').addEventListener('click', ev => run(ev.currentTarget, 'protect-msg', { ctx: 'protect' }, async () => {
+  const p = state.protected;
+  if (!p) return;
+  setStatus('protect-msg', 'Requesting a time anchor through the relay.');
+  const r = await platform.anchor({ evidenceJson: p.anchoredJson ?? p.evidenceJson, kinds: ['rfc3161'] });
+  const anyOk = r.results.some(x => x.ok);
+  if (anyOk) p.anchoredJson = r.evidenceJson;
+  const v = anyOk ? await platform.verifyEvidence(r.evidenceJson) : null;
+  const genTime = v?.anchors?.at(-1)?.genTime ?? null;
+  renderAnchorBox();
+  const box = $('protect-anchor-result');
+  for (const line of T.anchoredLines(r.results, genTime)) box.append(el('p', { text: line }));
+  setStatus('protect-msg', anyOk ? `Anchored. Download ${T.anchoredName(p.inputName)} below.` : 'The time anchor failed. See the reason above.');
+}));
+$('protect-save-anchored').addEventListener('click', ev => run(ev.currentTarget, 'protect-msg', { ctx: 'protect' }, async () => {
+  const p = state.protected;
+  if (!p?.anchoredJson) return;
+  const name = T.anchoredName(p.inputName);
+  await platform.saveFile(name, te.encode(p.anchoredJson), 'application/json');
+  setStatus('protect-msg', `Downloaded ${name}. Keep this file private; it replaces the evidence without an anchor.`);
 }));
 
 // ---------------------------------------------------------------- 3. Check
@@ -483,7 +516,8 @@ function fillStaticTexts() {
   $('key-backup-text').textContent = `${T.TEXT.backupForced} ${T.TEXT.keyLoss}`;
   $('key-pass-rule').textContent = `${T.TEXT.passphraseRule} ${T.TEXT.passphraseMemory}`;
   $('protect-private').textContent = T.TEXT.evidencePrivate;
-  $('protect-anchor-text').textContent = `${T.TEXT.anchorPending} ${T.TEXT.noTimeProof}`;
+  $('protect-anchor-text').textContent = T.TEXT.anchorNotConfigured;
+  $('protect-anchor').textContent = T.TEXT.anchorButtonOff;
   fillList($('protect-limits'), T.TEXT.limits);
   $('disclose-before').textContent = T.TEXT.discloseBefore;
   $('disclose-nosecret').textContent = T.TEXT.discloseNoSecret;
@@ -501,6 +535,7 @@ async function start() {
   try {
     await platform.ready();
     state.caps = await platform.capabilities();
+    renderAnchorBox();
     await refreshKey();
   } catch (e) {
     setError('app-status', e);

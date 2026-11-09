@@ -20,14 +20,17 @@
 //! - tests/smoke.node.cjs scans the whole wasm memory after each such call.
 //!
 //! Errors are `JsError` with the message `CODE: message`. CODE is the core
-//! `ErrorCode` name (`BadInput`, ...) or `ANCHOR_UNAVAILABLE`. platform-web.js
+//! `ErrorCode` name (`BadInput`, `BadAnchor`, ...). platform-web.js
 //! splits on the first `: ` and maps CODE to `error.code`.
 
+use base64::engine::general_purpose::STANDARD as B64;
+use base64::Engine as _;
+use noreacore::anchor::{attach_anchor as core_attach_anchor, tsa_parse_response, tsa_parse_token, tsa_request_der};
 use noreacore::canary::MarkOptions;
 use noreacore::check::check as core_check;
 use noreacore::disclose::{disclose as core_disclose, verify_disclosure as core_verify_disclosure, SuspectMeta};
 use noreacore::evidence::{
-    build_evidence, derive_dataset_key, sha256_hex as core_sha256_hex, verify_evidence as core_verify_evidence,
+    build_evidence, derive_dataset_key, Anchor, sha256_hex as core_sha256_hex, verify_evidence as core_verify_evidence,
     Evidence,
 };
 use noreacore::shape::inspect as core_inspect;
@@ -95,7 +98,6 @@ fn isolated<R>(f: impl FnOnce() -> R) -> R {
 const ARGON2_M_KIB: u32 = 64 * 1024;
 const ARGON2_T: u32 = 3;
 const ARGON2_P: u32 = 1;
-const ANCHOR_UNAVAILABLE: &str = "ANCHOR_UNAVAILABLE: anchor not implemented until WP-08";
 
 fn js(e: Error) -> JsError {
     // Display is "{code:?}: {message}" (core/src/error.rs). Core messages
@@ -331,16 +333,59 @@ pub fn anchor_subject_hex(evidence_json: &str) -> Result<String, JsError> {
     Ok(s.iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// RFC 3161 TimeStampReq DER. core `anchor.rs` is WP-08; until then this throws.
+/// RFC 3161 TimeStampReq DER for this evidence's `anchor_subject` (evidence-v1 §8).
+/// `nonce` comes from JS `crypto.getRandomValues` (core has no RNG); empty = no nonce.
 #[wasm_bindgen(js_name = tsaRequest)]
-pub fn tsa_request(_evidence_json: &str, _nonce: &[u8]) -> Result<Vec<u8>, JsError> {
-    Err(JsError::new(ANCHOR_UNAVAILABLE))
+pub fn tsa_request(evidence_json: &str, nonce: &[u8]) -> Result<Vec<u8>, JsError> {
+    let ev = parse_evidence(evidence_json)?;
+    let subject = ev.anchor_subject().map_err(js)?;
+    if nonce.len() > 32 {
+        return Err(bad_input("nonce must be at most 32 bytes"));
+    }
+    Ok(tsa_request_der(&subject, if nonce.is_empty() { None } else { Some(nonce) }))
 }
 
-/// Adds an anchor to the evidence. core `anchor.rs` is WP-08; until then this throws.
+fn bad_anchor(m: &str) -> JsError {
+    js(Error::new(ErrorCode::BadAnchor, m))
+}
+
+/// Appends an rfc3161 anchor and returns the evidence JSON (§8.2).
+/// `anchorJson` = `{"kind":"rfc3161", "tsa_url", "fetched_claim", and one of
+/// "token_b64" (TimeStampToken) or "response_b64" (whole TimeStampResp as
+/// returned by the relay; the token is extracted)}`. Only `token_b64` is stored.
+/// The token must parse and its imprint must equal this evidence's anchor_subject.
 #[wasm_bindgen(js_name = attachAnchor)]
-pub fn attach_anchor(_evidence_json: &str, _anchor_json: &str) -> Result<String, JsError> {
-    Err(JsError::new(ANCHOR_UNAVAILABLE))
+pub fn attach_anchor(evidence_json: &str, anchor_json: &str) -> Result<String, JsError> {
+    let mut ev = parse_evidence(evidence_json)?;
+    let a = parse_json(anchor_json, "anchorJson")?;
+    let a = a.as_object().ok_or_else(|| bad_input("anchorJson must be a JSON object"))?;
+    if a.get("kind").and_then(Value::as_str) != Some("rfc3161") {
+        return Err(bad_input("anchorJson.kind must be \"rfc3161\""));
+    }
+    let field = |k: &str| -> Result<String, JsError> {
+        match a.get(k) {
+            Some(Value::String(s)) if !s.is_empty() => Ok(s.clone()),
+            _ => Err(bad_input(&format!("anchorJson.{k} must be a non-empty string"))),
+        }
+    };
+    let tsa_url = field("tsa_url")?;
+    let fetched_claim = field("fetched_claim")?;
+    let b64 = |s: &str| B64.decode(s).map_err(|_| bad_anchor("anchor bytes are not base64"));
+    let tok = match (a.get("token_b64").and_then(Value::as_str), a.get("response_b64").and_then(Value::as_str)) {
+        (Some(t), None) => tsa_parse_token(&b64(t)?).map_err(js)?,
+        (None, Some(r)) => tsa_parse_response(&b64(r)?).map_err(js)?,
+        _ => return Err(bad_input("anchorJson needs exactly one of token_b64 or response_b64")),
+    };
+    let subject = ev.anchor_subject().map_err(js)?;
+    if tok.imprint != subject {
+        return Err(bad_anchor("TSA token imprint does not match this evidence's anchor_subject; not attached"));
+    }
+    let mut rest = serde_json::Map::new();
+    rest.insert("token_b64".into(), Value::String(B64.encode(&tok.token_der)));
+    rest.insert("tsa_url".into(), Value::String(tsa_url));
+    rest.insert("fetched_claim".into(), Value::String(fetched_claim));
+    core_attach_anchor(&mut ev, Anchor { kind: "rfc3161".into(), rest });
+    serde_json::to_string(&ev).map_err(|_| internal())
 }
 
 /// ML-DSA-65 verifying key (1952 B) for a seed. The seed is wiped.

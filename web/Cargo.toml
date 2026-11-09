@@ -25,3 +25,6 @@ argon2 = { version = "=0.6.0", default-features = false, features = ["alloc"] }
 
 # Wipe secrets received from JS (Vec<u8>) after use (ADR-0012).
 zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
+
+# token_b64 / response_b64 in attachAnchor (WP-08). Same version and features as core: no RNG.
+base64 = { version = "0.23.1", default-features = false, features = ["alloc"] }

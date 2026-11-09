@@ -163,7 +163,8 @@ const dense = te.encode(JSON.stringify(['P-001', 'P-002', 'P-003', 'P-004', 'P-0
 ok(await hasCode(() => platform.protect({ input: dense, datasetId: ds, n: 4, passphrase: PW }), 'NO_MARKER'), 'no usable marker field -> NO_MARKER');
 const wp03 = te.encode('[{"id":"P-001","addr":"하남시 미사동 1-1","area_m2":330.5,"use":"대"},{"id":"P-002","addr":"하남시 미사동 2-7","area_m2":512.0,"use":"전"},{"id":"P-003","addr":"하남시 미사동 3-2","area_m2":87.8,"use":"답"},{"id":"P-004","addr":"하남시 망월동 4-4","area_m2":120.25,"use":"대"},{"id":"P-005","addr":"하남시 망월동 5-9","area_m2":45.0,"use":"전"},{"id":"P-006","addr":"하남시 미사동 6-1","area_m2":999.99,"use":"대"}]');
 ok(await hasCode(() => platform.protect({ input: wp03, datasetId: ds, n: 4, passphrase: PW }), 'CANARY_EXHAUSTED'), 'dense unique id -> CANARY_EXHAUSTED');
-ok(await hasCode(() => platform.anchor({ evidenceJson: p.evidenceJson }), 'ANCHOR_UNAVAILABLE'), 'anchor -> ANCHOR_UNAVAILABLE (WP-08)');
+e = await hasCode(() => platform.anchor({ evidenceJson: p.evidenceJson }), 'ANCHOR_UNAVAILABLE');
+ok(e && e.message === 'No anchor relay is configured. Use the CLI: norea anchor <evidence.json> --tsa URL', 'anchor with anchorRelay null -> ANCHOR_UNAVAILABLE, points to the CLI');
 ok(await hasCode(() => platform.check({ suspect: p.marked, evidenceJson: '{bad', passphrase: PW }), 'BAD_EVIDENCE'), 'check(malformed evidence) -> BAD_EVIDENCE');
 ok(await hasCode(() => platform.check({ suspect: p.marked, evidenceJson: 42, passphrase: PW }), 'BAD_EVIDENCE'), 'check(evidence not a string) -> BAD_EVIDENCE');
 const forged = JSON.stringify({ ...ev, sig_b64: (ev.sig_b64[0] === 'A' ? 'B' : 'A') + ev.sig_b64.slice(1) });
@@ -256,6 +257,69 @@ let saved = null;
 globalThis.document = { createElement: () => ({ click() { saved = { name: this.download, href: this.href }; } }) };
 await platform.saveFile('x.evidence.json', te.encode('{}'), 'application/json');
 ok(saved?.name === 'x.evidence.json' && saved.href.startsWith('blob:'), 'saveFile -> <a download> with a blob URL');
+
+// ---------------------------------------------------------------- 9b. anchor through a relay (WP-08), fetch stubbed
+{
+  const { config } = await import(pathToFileURL(`${root}/config.js`).href); // same instance platform-web reads
+  const vec = JSON.parse(await readFile(new URL('./vectors/norea-evidence-v1.json', import.meta.url), 'utf8'));
+  const vecEv = JSON.stringify(vec.json.evidence);
+  const fixture = await readFile(new URL('./fixtures/tsa-response-freetsa-vector-json.der', import.meta.url));
+  const foreign = await readFile(new URL('../core/tests/fixtures/tsa-response-freetsa.der', import.meta.url));
+  const saveFetch = globalThis.fetch;
+  const calls = [];
+  let reply = () => new Response(fixture, { status: 200, headers: { 'Content-Type': 'application/timestamp-reply' } });
+  globalThis.fetch = async (u, o) => { calls.push({ u: String(u), o }); return reply(); };
+  config.anchorRelay = 'http://localhost:8787';
+  try {
+    ok((await platform.capabilities()).anchorRelay === 'http://localhost:8787', 'capabilities().anchorRelay reflects config.js');
+    const r = await platform.anchor({ evidenceJson: vecEv });
+    const c = calls[0];
+    const body = new Uint8Array(c.o.body);
+    ok(calls.length === 1 && c.u === 'http://localhost:8787/v1/tsa' && c.o.method === 'POST' && c.o.headers['Content-Type'] === 'application/timestamp-query' &&
+      c.o.headers['X-TSA-URL'] === 'https://freetsa.org/tsr' && c.o.credentials === 'omit', 'anchor POSTs the TimeStampReq to <relay>/v1/tsa with X-TSA-URL from config');
+    const bodyHex = Buffer.from(body).toString('hex');
+    // 59 B without nonce; an 8-byte nonce INTEGER adds 2 + 1..9 bytes (leading zeros stripped, 0x00 pad on a high bit).
+    ok(body[0] === 0x30 && body.length >= 62 && body.length <= 70 && bodyHex.includes(vec.json.anchor_subject_hex) && bodyHex.endsWith('0101ff'),
+      `request body: TimeStampReq with the anchor_subject imprint and a random nonce (${body.length} B)`);
+    ok(!bodyHex.includes(Buffer.from(vec.json.evidence.sig_b64, 'base64').subarray(0, 32).toString('hex')) && !td.decode(body).includes(vec.json.evidence.dataset_id),
+      'request body carries no evidence fields (only the imprint and nonce)');
+    ok(r.results.length === 1 && r.results[0].kind === 'rfc3161' && r.results[0].ok === true, `anchor -> results ${JSON.stringify(r.results)}`);
+    const a = JSON.parse(r.evidenceJson).anchors[0];
+    ok(a.tsa_url === 'https://freetsa.org/tsr' && CLAIM_RE.test(a.fetched_claim) && typeof a.token_b64 === 'string', 'anchor entry: tsa_url, fetched_claim (UTC, 20 chars), token_b64');
+    const v = await platform.verifyEvidence(r.evidenceJson);
+    ok(v.signatureOk && v.anchors[0].imprintOk === true && v.anchors[0].genTime === '2026-11-09T04:55:37Z' && v.anchors[0].chainVerified === false,
+      `anchored evidence verifies: imprintOk, genTime ${v.anchors[0].genTime}, chainVerified false`);
+
+    reply = () => new Response(foreign, { status: 200 });
+    const bad = await platform.anchor({ evidenceJson: vecEv });
+    ok(bad.results[0].ok === false && /imprint does not match/.test(bad.results[0].error) && bad.evidenceJson === vecEv,
+      'relay returns a token for another imprint -> results[0].ok false (reported, not thrown), evidence unchanged');
+    reply = () => new Response('TSA answered HTTP 500\n', { status: 502 });
+    const down = await platform.anchor({ evidenceJson: vecEv });
+    ok(down.results[0].ok === false && /HTTP 502/.test(down.results[0].error), `relay HTTP 502 -> reported: ${down.results[0].error}`);
+    reply = () => { throw new TypeError('Failed to fetch'); };
+    const off = await platform.anchor({ evidenceJson: vecEv, kinds: ['rfc3161', 'ots'] });
+    ok(off.results.length === 2 && !off.results[0].ok && /could not be reached/.test(off.results[0].error) && !off.results[1].ok && /ots/.test(off.results[1].error),
+      'relay unreachable and kind ots -> both reported in results');
+    ok(await hasCode(() => platform.anchor({ evidenceJson: '{bad' }), 'BAD_EVIDENCE'), 'anchor(malformed evidence) -> BAD_EVIDENCE before any request');
+    config.anchorRelay = 'http://localhost:8787/path';
+    ok((await platform.capabilities()).anchorRelay === null, 'anchorRelay that is not a bare origin is ignored (null)');
+
+    // Live check through the real dev relay and freetsa.org, only when asked (needs network).
+    if (process.env.NOREA_LIVE_RELAY) {
+      globalThis.fetch = (u, o) => realFetch(u, o);
+      config.anchorRelay = process.env.NOREA_LIVE_RELAY;
+      const live = await platform.anchor({ evidenceJson: p.evidenceJson });
+      const lv = live.results[0].ok ? await platform.verifyEvidence(live.evidenceJson) : null;
+      ok(lv?.anchors[0].imprintOk === true, `LIVE relay ${config.anchorRelay}: ${JSON.stringify(live.results)}, genTime ${lv?.anchors[0].genTime}`);
+    } else {
+      console.log('skip  live relay test (requires network): set NOREA_LIVE_RELAY=http://localhost:8787 with scripts/dev-relay.mjs running');
+    }
+  } finally {
+    globalThis.fetch = saveFetch;
+    config.anchorRelay = null;
+  }
+}
 
 // ---------------------------------------------------------------- 10. every error seen: English message, contract code, no secrets
 const noCode = seenErrors.filter(x => !CODES.includes(x.code));

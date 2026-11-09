@@ -38,10 +38,10 @@ cargo test -p norea-cli
 echo "== 5. JS syntax + web UI static checks"
 for f in web/public/*.js tests/*.mjs; do cp "$f" "$OUT/check.mjs"; node --check "$OUT/check.mjs"; done
 for f in tests/*.cjs; do node --check "$f"; done
-# Browser JS may import only ./pkg/norea_web.js, ./custody.js, ./platform*.js, ./ui-text.js (no CDN, no npm).
+# Browser JS may import only ./pkg/norea_web.js, ./custody.js, ./config.js, ./platform*.js, ./ui-text.js (no CDN, no npm).
 BAD=$(grep -hoE "(from|import)[[:space:]]*\(?[[:space:]]*['\"][^'\"]+['\"]" web/public/*.js \
   | grep -oE "['\"][^'\"]+['\"]" | tr -d "'\"" \
-  | grep -vxE '\./pkg/norea_web\.js|\./custody\.js|\./platform(-[a-z]+)?\.js|\./ui-text\.js' || true)
+  | grep -vxE '\./pkg/norea_web\.js|\./custody\.js|\./config\.js|\./platform(-[a-z]+)?\.js|\./ui-text\.js' || true)
 if [ -n "$BAD" ]; then
   echo "FAIL: browser JS imports outside the allowed local modules: $BAD" >&2
   exit 1
@@ -64,6 +64,7 @@ if grep -niE "https?:|[\"'(=]//" "$H" web/public/style.css; then uifail "externa
 if grep -niE "@import|url\(" web/public/style.css; then uifail "@import or url() in style.css (above)"; fi
 CSP="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
 [ "$(grep -c "content=\"$CSP\">" "$H")" = "1" ] || uifail "CSP meta in index.html changed"
+grep -q '^  anchorRelay: null,$' web/public/config.js || uifail "config.js must ship with anchorRelay: null (deployments set it, see relay/README.md)"
 node tests/ui.node.mjs "$PWD/$WEBTEST"
 
 echo "== 6. getrandom in browser wasm tree"

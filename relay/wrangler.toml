@@ -1,0 +1,8 @@
+# Cloudflare Worker config for the NoREA TSA relay. Not deployed (see README.md).
+name = "norea-tsa-relay"
+main = "worker.ts"
+compatibility_date = "2026-10-01"
+
+[vars]
+# Exact origin of the deployed web app. CORS is allowed for this origin only.
+ALLOWED_ORIGIN = "https://norea.example"

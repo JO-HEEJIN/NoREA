@@ -16,6 +16,7 @@
 
 import init, * as wasm from './pkg/norea_web.js';
 import * as custody from './custody.js';
+import { config } from './config.js';
 
 /** Every platform implementation exports exactly these 17 functions. */
 export const CONTRACT = ['ready', 'capabilities', 'hasKey', 'keyInfo', 'setupKey', 'deleteKey', 'exportBackup',
@@ -23,6 +24,7 @@ export const CONTRACT = ['ready', 'capabilities', 'hasKey', 'keyInfo', 'setupKey
   'saveFile', 'confirmAction'];
 
 // ---------------------------------------------------------------- errors
+const NO_RELAY = 'No anchor relay is configured. Use the CLI: norea anchor <evidence.json> --tsa URL';
 // core ErrorCode (or ANCHOR_UNAVAILABLE) -> [contract code, Korean message]
 const CORE_ERRORS = {
   BadInput: ['BAD_INPUT', 'The input file or options are invalid.'],
@@ -33,7 +35,7 @@ const CORE_ERRORS = {
   BadBlob: ['BAD_EVIDENCE', 'The canaries in this evidence cannot be opened with this key. Wrong key, or the evidence was tampered with.'],
   BadDisclosure: ['BAD_DISCLOSURE', 'The disclosure request or file is invalid.'],
   BadAnchor: ['BAD_EVIDENCE', 'The anchor is invalid.'],
-  ANCHOR_UNAVAILABLE: ['ANCHOR_UNAVAILABLE', 'Time anchors are not supported yet.'],
+  ANCHOR_UNAVAILABLE: ['ANCHOR_UNAVAILABLE', NO_RELAY],
 };
 
 function platformError(code, message, detail) {
@@ -100,12 +102,12 @@ let initPromise = null;
 /** WASM init. Call before anything else. */
 export const ready = guard(async () => { initPromise ??= init(); await initPromise; });
 
-/** hardwareDuringSigning: web signs with the seed in page memory (ADR-0006). No relay until WP-08. */
+/** hardwareDuringSigning: web signs with the seed in page memory (ADR-0006). anchorRelay from config.js. */
 export const capabilities = guard(async () => ({
   platform: 'web',
   prf: await custody.prfAvailable(),
   hardwareDuringSigning: false,
-  anchorRelay: null,
+  anchorRelay: relayOrigin(),
 }));
 
 export const hasKey = guard(() => custody.hasCustody());
@@ -167,9 +169,60 @@ export const protect = guard(async ({ input, format: f, datasetId, n, markerFiel
 });
 
 // ---------------------------------------------------------------- 11 anchor (WP-08)
-/** Not available until WP-08 (relay + core anchor.rs). */
-export const anchor = guard(async () => {
-  throw platformError('ANCHOR_UNAVAILABLE', CORE_ERRORS.ANCHOR_UNAVAILABLE[1]);
+function relayOrigin() {
+  const r = config.anchorRelay;
+  return typeof r === 'string' && /^https?:\/\/[^/]+$/.test(r) ? r : null;
+}
+
+const toB64 = u8 => { let s = ''; for (const b of u8) s += String.fromCharCode(b); return btoa(s); };
+
+/** One rfc3161 anchor through the relay. Returns the anchored evidence JSON or throws. */
+async function rfc3161(evidenceJson, relay) {
+  const tsaUrl = config.tsaUrl;
+  const nonce = crypto.getRandomValues(new Uint8Array(8));
+  const req = wasm.tsaRequest(evidenceJson, nonce);
+  let r;
+  try {
+    r = await fetch(`${relay}/v1/tsa`, {
+      method: 'POST', body: req, cache: 'no-store', credentials: 'omit', referrerPolicy: 'no-referrer',
+      headers: { 'Content-Type': 'application/timestamp-query', 'X-TSA-URL': tsaUrl },
+    });
+  } catch {
+    throw platformError('ANCHOR_UNAVAILABLE', 'The anchor relay could not be reached.');
+  }
+  if (!r.ok) throw platformError('ANCHOR_UNAVAILABLE', `The anchor relay answered HTTP ${r.status}.`);
+  const resp = new Uint8Array(await r.arrayBuffer());
+  const anchorJson = JSON.stringify({
+    kind: 'rfc3161', response_b64: toB64(resp), tsa_url: tsaUrl, fetched_claim: custody.claimNow(),
+  });
+  return wasm.attachAnchor(evidenceJson, anchorJson);
+}
+
+/**
+ * `{evidenceJson, results: [{kind, ok, error?}]}`. Only rfc3161 for now; a
+ * failed kind is reported in `results`, not thrown. The evidence stays in
+ * memory; the UI offers it for download. No relay configured -> ANCHOR_UNAVAILABLE.
+ */
+export const anchor = guard(async ({ evidenceJson, kinds } = {}) => {
+  evidenceText(evidenceJson);
+  const relay = relayOrigin();
+  if (!relay) throw platformError('ANCHOR_UNAVAILABLE', NO_RELAY);
+  wasm.verifyEvidence(evidenceJson); // structure check before any network call
+  const want = kinds ?? ['rfc3161'];
+  if (!Array.isArray(want) || !want.every(k => typeof k === 'string')) throw badInput('kinds must be an array of strings.');
+  let current = evidenceJson;
+  const results = [];
+  for (const kind of want) {
+    if (kind !== 'rfc3161') { results.push({ kind, ok: false, error: `${kind} anchors are not supported in the web build.` }); continue; }
+    try {
+      current = await rfc3161(current, relay);
+      results.push({ kind, ok: true });
+    } catch (e) {
+      const n = normalize(e);
+      results.push({ kind, ok: false, error: n.detail ? `${n.message} (${n.detail})` : n.message });
+    }
+  }
+  return { evidenceJson: current, results };
 });
 
 // ---------------------------------------------------------------- 12-13 (K needed)

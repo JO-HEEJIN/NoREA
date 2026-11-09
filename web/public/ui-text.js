@@ -33,7 +33,10 @@ export const TEXT = {
   jsonReadAsCsv: "The file name ends in .json but it did not parse as JSON, so it was read as CSV. Set 'Input format' above to 'Read as JSON' to see where the problem is (line, column).",
   jsonNameButCsv: 'The file name ends in .json but it was detected as CSV. It may be JSON with comments or trailing commas. Fix it to standard JSON and select it again.',
   evidencePrivate: 'Do not publish the evidence file. Publish only the marked file. You need the evidence later to run a check and build a disclosure package; if you lose it, you cannot prove copying of this release.',
-  anchorPending: 'Time anchor is in preparation.',
+  anchorNotConfigured: 'Time anchor: not configured in this deployment. Use the CLI (norea anchor).',
+  anchorReady: 'Get an RFC 3161 time anchor from a public TSA through the anchor relay. Only a SHA-256 hash of the signed evidence leaves this browser. Until you anchor it, this evidence does not prove when it was created.',
+  anchorButton: 'Get time anchor',
+  anchorButtonOff: 'Get time anchor (not configured)',
   noTimeProof: 'This evidence does not prove when it was created.',
   noCaptureProof: 'This product does not prove when or where the copy was obtained (capture time). The source and capture time of the copy are claims and are not verified. Back them up with external evidence such as notarization or a web archive.',
   tsaChain: 'The TSA certificate chain is not verified by this tool (chain_verified: false). To check the chain, run norea-verify --export-anchors and then openssl ts -verify yourself.',
@@ -164,6 +167,17 @@ export function protectFileNames(inputName, format) {
 export function evidenceStem(evidenceName) {
   return stemOf(evidenceName).replace(/\.evidence$/, '') || 'norea';
 }
+/** `<stem>.evidence.anchored.json` for the evidence with a time anchor attached. */
+export const anchoredName = inputName => `${stemOf(inputName)}.evidence.anchored.json`;
+/** Status lines after platform.anchor(): genTime of the newest anchor + the TSA-chain note. */
+export function anchoredLines(results, genTime) {
+  const lines = [];
+  for (const r of Array.isArray(results) ? results : []) {
+    lines.push(r.ok ? `Anchored (${r.kind}): genTime ${genTime ?? 'unknown'}` : `Anchor ${r.kind} failed: ${r.error ?? 'unknown error'}`);
+  }
+  lines.push(TEXT.tsaChain);
+  return lines;
+}
 export const checkReportName = evidenceName => `${evidenceStem(evidenceName)}.check-report.json`;
 export const disclosureName = evidenceName => `${evidenceStem(evidenceName)}.disclosure.json`;
 export const KEY_BACKUP_NAME = 'norea-key-backup.json';
@@ -182,7 +196,7 @@ const HINTS = {
   BAD_DISCLOSURE: ctx => (ctx === 'verify'
     ? 'The file structure is invalid, so it cannot be verified (same as norea-verify exit code 2).'
     : 'The selected canaries to disclose or the input values are invalid.'),
-  ANCHOR_UNAVAILABLE: () => 'Time anchors arrive in the next version.',
+  ANCHOR_UNAVAILABLE: () => 'No anchor relay is available in this deployment. Use the CLI: norea anchor <evidence.json> --tsa URL.',
   BACKUP_INVALID: () => 'The backup file is damaged or in a format this version cannot open.',
 };
 
