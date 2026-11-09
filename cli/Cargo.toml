@@ -20,3 +20,11 @@ noreacore = { path = "../core" }
 # Argument parsing and --help. default-features = false drops color/suggestions
 # (terminal detection deps); derive is used for the subcommand structs.
 clap = { version = "4.6.7", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+
+# WP-05. All three are already in Cargo.lock through noreacore (same versions); no new crate.
+# serde_json: parse evidence files and read report fields for the human output.
+serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
+# base64: decode anchor tokens for --export-anchors.
+base64 = { version = "0.23.1", default-features = false, features = ["alloc"] }
+# zeroize: wipe K, K_d and seed buffers read from test key files (ADR-0012).
+zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }

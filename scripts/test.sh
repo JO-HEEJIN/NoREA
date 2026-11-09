@@ -3,7 +3,7 @@
 #   1. core unit tests + frozen-format vectors
 #   2. wasm build + the exact WASM API end to end (node)
 #   3. the web platform contract incl. key custody, passphrase path (node + in-memory IndexedDB)
-#   4. CLI tests
+#   4. CLI tests: unit + cli/tests/e2e.rs (protect -> check -> disclose -> norea-verify, exit codes, no key material in output)
 #   5. syntax check of all browser JS as ES modules
 #   6. no getrandom in the browser wasm dependency tree (CONTEXT.md invariant 2)
 # Steps marked "disabled" wait for the WP named next to them; enable them there.
@@ -26,7 +26,7 @@ echo "== 3. platform contract (disabled until WP-06)"
 # [ -d tests/node_modules ] || (cd tests && npm install --no-audit --no-fund --silent)
 # node tests/platform.node.mjs "$PWD/web/public"
 
-echo "== 4. CLI tests"
+echo "== 4. CLI tests (unit + e2e)"
 cargo test -p norea-cli
 
 echo "== 5. JS syntax"

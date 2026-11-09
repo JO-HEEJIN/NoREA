@@ -94,3 +94,15 @@ WP-04 2차: 머리가 QUESTION 1에 B(행 배열 경계)로 답했고 제안 1~6
 - 동결 vector json의 확률 줄은 `2^-13.25`, R=10, n=4이다.
 - lib 68, check_disclose 15, vectors와 shape_vectors 그대로 통과. clippy, wasm, getrandom 0, deny, test.sh 통과. 새 의존성 없음.
 
+
+## WP-05 Review
+
+희진이 "WP-05 시작해"라고 했다(HANDS-PROTOCOL §1.4 "바로 해"). 계획 확인 단계 없이 진행했고 결과는 완료다. `cli/src/bin/norea-verify.rs`(evidence, disclosure, `--json`, `--export-anchors`, 종료 0/1/2)와 `cli/src/bin/norea.rs`(inspect, protect, check, disclose, anchor 종료 3, `--i-know-this-is-for-testing` gate, zeroize)를 구현했다. `cli/tests/e2e.rs`(11개), `cli/README.md`(감정인용, "이 도구가 검증하지 않는 것")를 추가했고 `scripts/test.sh` 4단계 설명을 고쳤다. `cli/Cargo.toml`에는 serde_json, base64, zeroize를 넣었다. 셋 다 core와 같은 버전으로 lock에 이미 있던 crate라 Cargo.lock은 norea-cli 항목 3줄만 바뀌었다. core 파일은 바꾸지 않았다. 검증(실제 실행): 수락 기준 1~8 통과, `cargo test --workspace`, clippy `-D warnings`, wasm build, getrandom 0, `cargo deny check`, `./scripts/test.sh` ALL CHECKS PASSED. release cold build는 13.6 s, `norea-verify` 1.36 MB, `norea` 1.54 MB(Apple M4)였다. QUESTION은 없다. 상세: `/Users/mac/dev/derator/Fable_5_1/tasks/reports/WP-05.md`.
+
+WP-05 2차: 머리 답변(1차)대로 고쳤다.
+- `norea disclose`에 `--source-claim`, `--captured-claim`, `--capture-method-claim`, `--created-claim`, `--force`를 넣었다.
+- `norea protect`에 `--created-claim`을 넣었다.
+- `norea-verify evidence`에 `--json`을 넣었다.
+- `--export-anchors` README.txt와 `cli/README.md`의 ots 안내를 "WP-08에서 확정"으로 바꿨다.
+
+e2e는 5개를 더해 16개다. claim, force, 재현 가능 protect, evidence --json, ots README를 확인한다. 검증(실제 실행): workspace test, clippy, getrandom 0, deny, test.sh 모두 통과했다. core, vectors, Cargo.lock은 1차 이후 바뀌지 않았다.

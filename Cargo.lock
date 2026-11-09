@@ -329,8 +329,11 @@ dependencies = [
 name = "norea-cli"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "clap",
  "noreacore",
+ "serde_json",
+ "zeroize",
 ]
 
 [[package]]
