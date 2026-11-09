@@ -122,3 +122,14 @@ WP-06 2차: 머리 답변(1차)대로 고쳤다.
 - `keyInfo().persisted`를 추가했다. persist() 결과는 record 밖(메모리)에 두고, 없으면 `persisted()`, 그것도 없으면 `"unknown"`이다.
 - test.sh 3단계는 `target/web-test/`(JS 복사본 + pkg)에서 돈다. `web/public/pkg`는 build-web.sh 산출물로만 남는다.
 - platform 테스트는 84개다. 검증(실제 실행): test.sh ALL CHECKS PASSED, `web/public/pkg` sha가 test.sh 전후 같음, getrandom 0, clippy host/wasm32 0. core·vector·Cargo.lock은 바뀌지 않았다.
+
+## WP-07 Review
+
+희진이 "WP-07 시작해"라고 했다(HANDS-PROTOCOL §1.4 "바로 해"). 계획 확인 단계 없이 진행했고 결과는 완료다.
+- 바꾼 것: `web/public/index.html`, `app.js`, `style.css`를 재작성했다. 순수 모듈 `web/public/ui-text.js`와 `tests/ui.node.mjs`(105개)를 추가했고, `scripts/test.sh` 5단계에 웹 UI 정적 검사와 ui 테스트를 넣었다. 탭 5개는 platform.js 계약만 부르고, passphrase는 읽는 즉시 입력란을 비운다.
+- 검증(실제 실행): `./scripts/test.sh` ALL CHECKS PASSED, getrandom 0, core/web/src/계약 JS/vectors/cli diff 0. 정적 검사 음성 대조 10종이 모두 잡혔다.
+- 브라우저: 설치된 Chrome 156을 headless로 띄워 CDP로 passphrase 경로 전체(키 생성 → 보호 → 재직렬화 사본 대조 32/32 → 공개 3개 → 키 삭제 후 검증 PASS, 1바이트 변조 FAIL)를 돌렸다. 키보드 탭·Enter와 390px 가로 스크롤 0을 확인했다(0 failures). 스크린샷은 Fable_5_1 `tasks/reports/wp07-screenshots/`에 있다.
+- 미실행: 기준 6(비개발자), passkey 경로와 다른 브라우저(WP-09).
+- 스펙과 다르게 한 것 6개(ui-text.js import, prf 2차 백업 문구 등). QUESTION 없음. 새 의존성 없음.
+
+상세: `/Users/mac/dev/derator/Fable_5_1/tasks/reports/WP-07.md`.

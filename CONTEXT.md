@@ -11,7 +11,7 @@ NoREA는 운영자가 자기 소유의 공개 데이터에 canary를 심고, ML-
 Phase 1 구현 중. 로직이 있는 모듈은 `error`, `table`(WP-01), `norm`, `shape`, `canary`(WP-02), `merkle`, `blob`, `sign`, `evidence`(WP-03), `check`, `disclose`(WP-04)이다. CLI(WP-05)와 웹 바인딩 `norea-web`(WP-06)은 core를 부르기만 한다. `anchor`는 문서 주석만 있는 빈 파일이다(WP-08). 동결 vector `tests/vectors/norea-evidence-v1.json`이 생성되어 있고 `core/tests/vectors.rs`가 대조한다. `norea.evidence.v1`과 `record.shape.v1`은 2026-11-09 머리 수락으로 Frozen이다. `norea.disclosure.v1`과 `norea.disclosure-report.v1`(disclosure-v1 §2~§4)도 WP-04 수락으로 Frozen이다. `norea.custody-backup.v1`(custody-web-v1)과 platform-contract v1(17개 함수, 에러 코드 12개)도 WP-06 수락으로 Frozen이다. Phase 1 프로토콜 5개가 모두 동결 상태다. crate root에 `Key32 = [u8; 32]`가 있다.
 
 - 뼈대(WP-00): workspace `core`(noreacore), `web`(norea-web), `cli`(norea-cli). CLI 두 바이너리(norea-verify, norea)는 WP-05, 웹 바인딩·custody·플랫폼 계약은 WP-06에서 구현되어 있다(아래 절).
-- `web/public/`에서 `custody.js`, `platform-web.js`, `platform.js`는 NoREA 계약 구현이다. `app.js`, `index.html`, `style.css`는 아직 이전 제품에서 이름만 바꿔 복사한 것이라 새 계약과 맞지 않는다(WP-07이 재작성). 그래서 웹 페이지는 지금 UI로 동작하지 않는다. `index.html`의 CSP meta와 `_headers`는 WP-00 그대로다.
+- `web/public/`: `custody.js`, `platform-web.js`, `platform.js`는 NoREA 계약 구현이고, `index.html`, `app.js`, `ui-text.js`, `style.css`는 WP-07 웹 UI다(아래 "웹 UI" 절). `index.html`의 CSP meta와 `_headers`는 WP-00 그대로다.
 - toolchain은 `rust-toolchain.toml`(1.99.1 + wasm32-unknown-unknown)로 고정, node는 22. clippy component가 설치되어 있다.
 
 ### error (`core/src/error.rs`)
@@ -144,6 +144,32 @@ platform-contract v1의 17개 함수와 `CONTRACT`만 export한다. 전부 async
 - 에러: 모든 함수가 한국어 `message` + `error.code` + `error.detail`(WASM에서 온 경우 core의 영어 `CODE: message`)을 가진 Error를 던진다. code는 계약 12개(`KEY_MISSING, KEY_EXISTS, BAD_PASSPHRASE, PRF_UNSUPPORTED, CANCELLED, BAD_INPUT, NO_MARKER, CANARY_EXHAUSTED, BAD_EVIDENCE, BAD_DISCLOSURE, ANCHOR_UNAVAILABLE, BACKUP_INVALID`) 중 하나다. core 코드 매핑: BadInput → BAD_INPUT, NoMarker → NO_MARKER, CanaryExhausted → CANARY_EXHAUSTED, BadEvidence/BadSignature/BadBlob/BadAnchor → BAD_EVIDENCE, BadDisclosure → BAD_DISCLOSURE, ANCHOR_UNAVAILABLE → ANCHOR_UNAVAILABLE. platform-web 자체 검사도 같다(evidence가 문자열이 아니면 BAD_EVIDENCE, indices 형식은 BAD_DISCLOSURE, 그 밖의 인자는 BAD_INPUT). code가 없는 것은 예상하지 못한 내부 오류(버그, IndexedDB 사용 불가)뿐이고 문구는 "처리 중 예상하지 못한 오류"다.
 - 외부 import는 없다. `./pkg/norea_web.js`, `./custody.js`, `./platform*.js`만 import한다(test.sh 5단계가 검사).
 
+### 웹 UI (`web/public/index.html`, `app.js`, `ui-text.js`, `style.css`, WP-07)
+한국어 UI. 탭 5개(WAI-ARIA tabs, 방향키·Home·End)가 있다. 서명키, 보호하기, 대조하기, 공개 패키지 만들기, 검증하기(키 없이 동작)다.
+- 의존: `app.js`는 `./platform.js`(계약 17개)와 `./ui-text.js`만 import한다. `ui-text.js`는 import 없는 순수 모듈이다(문구, 경고 코드 7개 → 한국어 문장, 에러 code별 안내, 입력 검사, 파일 이름, check/verify 결과 → 섹션 데이터). DOM은 `textContent`로만 만들고, 표시와 숨김은 `hidden` 속성이다. inline script·style·handler, 외부 리소스, 프레임워크, console 출력이 없다.
+- 시작: `ready()` → `capabilities()` → `hasKey()`/`keyInfo()`. `hardwareDuringSigning === false`면 "서명하는 동안 키가 이 브라우저 메모리에 있습니다."를 항상 보인다. `persisted`가 true가 아니면 저장소 삭제 가능 문구를 보인다.
+- 서명키
+  - 만들기: passkey(`setupKey({})`) 또는 passphrase(12자 이상 + 확인 입력, UI가 강제)로 만든다. 만든 직후 `saveFile('norea-key-backup.json')`로 백업을 강제로 내려받는다. PRF_UNSUPPORTED면 passphrase 칸으로 focus한다.
+  - 백업 다시 받기를 할 수 있다.
+  - 삭제는 "백업 보관" 체크 + `confirmAction`을 거친다. 복원은 키가 있으면 `confirmAction` 뒤 `importBackup`이다.
+  - prf 방식의 2차 passphrase 백업은 계약에 없어 UI가 "아직 없다"고 말한다.
+- passphrase는 플랫폼 호출 직전에 읽어 입력란을 즉시 비우고, 호출 뒤 변수를 버린다. `pagehide`에서 모든 password 입력란을 비운다. passphrase 방식이면 보호·대조·공개 탭에 passphrase 칸이 보인다.
+- 보호하기
+  - 파일을 고르면 `inspect`를 부른다. 감지된 형식을 표시하고, 형식을 자동/JSON/CSV로 바꾸면 다시 inspect한다.
+  - 강제 JSON + BAD_INPUT이면 "표준 JSON이 아닙니다(주석, 마지막 쉼표 등)"를 보이고, 줄·열은 "자세히"에 나온다. 자동 감지에서 `.json`이 BAD_INPUT이거나 CSV로 감지되면 JSON 강제를 안내한다.
+  - 필드 표의 marker checkbox는 추천 marker가 체크된 상태다. STRING/NUMERIC만 고를 수 있고 1~4개다. 경고는 필드 아래 줄에 나온다.
+  - 옵션: 데이터셋 ID(기본은 파일 stem), canary 수 8~256(기본 32), exclusions(한 줄에 값 하나).
+  - `protect` 뒤 `<stem>.marked.<json|csv>`와 `<stem>.evidence.json`을 버튼으로 내려받는다. evidence 비공개 문구가 붙는다.
+  - anchor 버튼은 비활성이고 "현재 이 증거는 생성 시점을 증명하지 않습니다"를 보인다(WP-08).
+- 대조하기: 사본 + evidence 파일로 `check`를 부른다. 일치/부분/없음 수, index별 표(결과, 발견 marker, `record_hint`), evidence PASS/FAIL, `commit_ok`, anchor N/A를 보인다. `commit_ok false`면 "이 증거는 이 서명키로 만든 것이 아니거나 변조되었습니다"다. 리포트는 `<stem>.check-report.json`으로 내려받는다.
+- 공개 패키지: 같은 세션의 마지막 대조 결과를 쓴다. matched index checkbox(기본 전부)와 claim 3칸(검증되지 않음 표시), disclosure-v1 §6 문구가 있다. `disclose` 뒤 `<stem>.disclosure.json`으로 내려받는다.
+- 검증하기
+  - 파일의 `schema`로 문서 종류를 고른다. disclosure면 사본과 함께 `verifyDisclosure`, 그 밖은 `verifyEvidence`다.
+  - 섹션은 norea-verify 사람용 출력과 같다: Evidence / anchor(판정 제외, TSA 체인 미검증 문구 항상) / 사본 / Merkle n/n, 재현 n/n / 판정 / statement 원문.
+  - PASS = `integrity_ok && all_reproduced`다. throw는 "구조 오류"다.
+- 접근성: 모든 input/select에 label이 있다(동적 checkbox는 sr-only label). 상태 영역 6개는 `aria-live`다. 390px에서 페이지와 표 모두 가로 스크롤이 없다.
+- 검증된 범위: headless Chrome 156 + CDP로 passphrase 경로 전체 흐름, 키보드 탭 이동과 Enter, 390px를 확인했다(Fable_5_1 reports WP-07). passkey 경로, Safari/Firefox, persisted true/false는 WP-09다.
+
 ### 대조 한계
 - 구조 경로는 "행 = 행 배열의 원소"를 전제한다. 한 행의 값을 서로 다른 object 배열에 나눠 넣은 변환(EAV)은 구조 경로로 못 잡는다(shape-v1 §8 한계 6). 텍스트 경로 fallback은 없다(v2).
 - 측정: 데이터셋 A와 같은 생성기로 만든 독립 데이터(seed 2~5, 우리 canary 없음)는 평평한 배열이든 `{"data":[...]}`로 감싸든 matched 0이고 partial 수가 같다(14, 13, 15, 18). partial의 대부분은 id(L1-D3 공간) 우연 일치다.
@@ -174,7 +200,7 @@ platform-contract v1의 17개 함수와 `CONTRACT`만 export한다. 전부 async
   - `full_report`(키 2~3 판정, n = 64와 A' 보고)와 `public_csv`(`NOREA_PUBLIC_CSV=경로 [NOREA_PUBLIC_CSV_SHA256=hex]`, 키 1~3 판정과 결측률 판정)는 `-- --ignored`로 돌린다.
 
 ### 검증 상태
-`cargo test --workspace`(core lib 68 + check_disclose 15 + shape_vectors 1 + distinguishability 1, ignored 2. vectors 1. cli unit 1 + e2e 16), `cargo clippy --workspace --all-targets -- -D warnings`, wasm32 release build, getrandom 0(`cargo tree -p norea-web --target wasm32-unknown-unknown`), `cargo deny check`, `./scripts/test.sh`(ALL CHECKS PASSED)가 통과한다. `cargo clippy -p norea-web --target wasm32-unknown-unknown -- -D warnings`도 경고 0이다. test.sh 단계: 1 core tests(release), 2 wasm build + `tests/smoke.node.cjs`(nodejs target), 3 `web/public/*.js`를 `target/web-test/`에 복사하고 그 아래 `pkg/`(web target, wasm-opt 없음)를 만들어 `tests/platform.node.mjs`(`tests/node_modules`가 없으면 `npm ci`). `web/public/pkg`는 `./scripts/build-web.sh` 산출물로만 남는다, 4 CLI unit + e2e(`cargo test -p norea-cli`), 5 JS 문법(`web/public/*.js`, `tests/*.mjs`, `tests/*.cjs`)과 브라우저 JS import 화이트리스트, 6 wasm 트리 getrandom 0. WebAuthn PRF와 DOM은 진짜 브라우저가 필요해 검증되지 않았다(WP-09). 상세: `/Users/mac/dev/derator/Fable_5_1/tasks/reports/WP-01.md` ~ `WP-06.md`.
+`cargo test --workspace`(core lib 68 + check_disclose 15 + shape_vectors 1 + distinguishability 1, ignored 2. vectors 1. cli unit 1 + e2e 16), `cargo clippy --workspace --all-targets -- -D warnings`, wasm32 release build, getrandom 0(`cargo tree -p norea-web --target wasm32-unknown-unknown`), `cargo deny check`, `./scripts/test.sh`(ALL CHECKS PASSED)가 통과한다. `cargo clippy -p norea-web --target wasm32-unknown-unknown -- -D warnings`도 경고 0이다. test.sh 단계: 1 core tests(release), 2 wasm build + `tests/smoke.node.cjs`(nodejs target), 3 `web/public/*.js`를 `target/web-test/`에 복사하고 그 아래 `pkg/`(web target, wasm-opt 없음)를 만들어 `tests/platform.node.mjs`(`tests/node_modules`가 없으면 `npm ci`). `web/public/pkg`는 `./scripts/build-web.sh` 산출물로만 남는다, 4 CLI unit + e2e(`cargo test -p norea-cli`), 5 JS 문법(`web/public/*.js`, `tests/*.mjs`, `tests/*.cjs`), 브라우저 JS import 화이트리스트, 웹 UI 정적 검사(app.js import는 `./platform.js`와 `./ui-text.js`뿐, app.js·ui-text.js에 `pkg/`·`custody`·`indexedDB`·`crypto.subtle`·storage·`innerHTML`·`console.` 없음, index.html에 inline script·style·handler·외부 URL 없음, CSP meta 문자열 그대로)와 `tests/ui.node.mjs`(105개: ui-text.js 단위 + 실제 platform 결과를 섹션 데이터로), 6 wasm 트리 getrandom 0. WebAuthn PRF와 브라우저별 DOM 동작은 WP-09에서 검증한다(WP-07은 headless Chrome 한 종류로 passphrase 경로만 확인했다). 상세: `/Users/mac/dev/derator/Fable_5_1/tasks/reports/WP-01.md` ~ `WP-07.md`.
 
 ## 불변 조건 (바꾸려면 ADR + 희진 승인)
 
