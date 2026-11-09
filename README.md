@@ -4,7 +4,7 @@ We don't block scrapers. Nobody can. So we leave fingerprints in your data and p
 
 NoREA lets a data owner plant fake but plausible records (canaries) in their own public table, sign evidence of it with ML-DSA-65, check a suspect copy the owner brings in, and hand a third party a disclosure they can verify with no secrets at all.
 
-The name is a nod to REA, "Reverse Engineer Anything" (github.com/morluto/rea): one MCP and an AI agent can take apart any site or app, record its sessions and rebuild it. Their showcase walks through Notion's clipboard bridge. We think that is simply where things are going, and you will not stop it with a bot wall. What you can do is make sure the clone carries your fingerprints. Hence NoREA.
+The name is a nod to REA, "Reverse Engineer Anything" (github.com/morluto/rea): one MCP and an AI agent can take apart any site or app, record its sessions and rebuild it. Their showcase walks through Notion's clipboard bridge. Its sibling rea-video (github.com/JuneYaooo/rea-video, 4,800+ stars, pushed the day before this hackathon) does the same to video, shot by shot, with a remake plan. NoREA covers tables today; content is a later problem and we say so. We think that is simply where things are going, and you will not stop it with a bot wall. What you can do is make sure the clone carries your fingerprints. Hence NoREA.
 
 ## The problem
 

@@ -24,6 +24,9 @@ h3 { font-size: 1.05rem; margin: 1.25rem 0 .4rem; }
 h4 { font-size: .95rem; margin: 1rem 0 .3rem; }
 p { margin: .4rem 0; }
 .note { color: var(--muted); font-size: .9rem; }
+.preview-banner {
+  border: 1px solid var(--accent); border-left-width: 4px; border-radius: 6px; padding: .45rem .7rem; font-size: .92rem;
+}
 .big { font-size: 1.05rem; font-weight: 600; }
 .warn {
   background: var(--warn-bg); color: var(--warn-fg); border-radius: 6px; padding: .5rem .7rem; font-size: .92rem;

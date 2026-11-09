@@ -15,6 +15,7 @@
   Whoever copies the data copies the canaries too, so you can find them in a suspicious copy and prove it.
   This tool does not stop copying. It just makes denying it awkward.</p>
   <p class="note">Everything runs in this browser. Your data, canaries, and keys are never sent to a server.</p>
+  <p id="preview-banner" class="preview-banner" role="note">Preview build. Try it with sample data, not with keys you care about. Passkey custody and non-Chromium browsers are not yet tested; use a passphrase.</p>
   <p id="app-status" class="status" role="status" aria-live="polite">Loading.</p>
 </header>
 
@@ -37,9 +38,12 @@
   <div id="key-create" hidden>
     <h3>Create a signing key</h3>
     <p class="note" id="key-backup-text"></p>
+    <!-- Passkey (PRF) custody is hidden in the preview build until tested in real browsers; code path kept. -->
+    <div id="key-passkey-option" class="preview-hidden" hidden>
     <h4>With a passkey</h4>
     <p id="key-prf-text" class="note"></p>
     <button type="button" id="key-create-passkey">Create key with passkey</button>
+    </div>
     <h4>With a passphrase</h4>
     <p class="note" id="key-pass-rule"></p>
     <label for="key-pass">Passphrase (12+ characters)</label>

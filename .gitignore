@@ -7,3 +7,5 @@ node_modules
 *.disclosure.json
 norea-key-backup*.json
 .DS_Store
+/demo/*.mp3
+/demo/*.mp4

@@ -112,6 +112,13 @@ ok(T.thresholdText(['a']).includes('at least 1 of the 1') && T.thresholdText(['a
   ok(hw.warnings.length === 0, 'hardwareDuringSigning true -> no memory sentence (and never a "never leaves hardware" claim here)');
   ok(T.prfText('unknown') === T.TEXT.prfUnknown && T.prfText(false) === T.TEXT.prfNo && T.prfText(true) === T.TEXT.prfYes, 'prf 3 states');
 }
+{
+  // Preview build: banner is static in index.html (ui-text.js may not say "custody"); passkey option hidden, passphrase stays.
+  const html = await readFile(new URL('../web/public/index.html', import.meta.url), 'utf8');
+  const banner = 'Preview build. Try it with sample data, not with keys you care about. Passkey custody and non-Chromium browsers are not yet tested; use a passphrase.';
+  ok(html.includes(`<p id="preview-banner" class="preview-banner" role="note">${banner}</p>`), 'preview banner present in index.html');
+  ok(/<div id="key-passkey-option"[^>]*\shidden>/.test(html) && html.includes('id="key-create-pass"'), 'preview: passkey option hidden, passphrase option visible');
+}
 
 // ---------------------------------------------------------------- 7. anchors
 {
