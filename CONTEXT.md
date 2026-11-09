@@ -8,7 +8,7 @@ NoREA는 운영자가 자기 소유의 공개 데이터에 canary를 심고, ML-
 
 ## 지금 동작하는 것
 
-Phase 1 구현 중. 로직이 있는 모듈은 `error`, `table`(WP-01), `norm`, `shape`, `canary`(WP-02), `merkle`, `blob`, `sign`, `evidence`(WP-03)이다. 나머지 모듈(check, disclose, anchor)은 문서 주석만 있는 빈 파일이다. 동결 vector `tests/vectors/norea-evidence-v1.json`이 생성되어 있고 `core/tests/vectors.rs`가 대조한다. `norea.evidence.v1`과 `record.shape.v1`은 2026-11-09 머리 수락으로 Frozen이다. crate root에 `Key32 = [u8; 32]`가 있다.
+Phase 1 구현 중. 로직이 있는 모듈은 `error`, `table`(WP-01), `norm`, `shape`, `canary`(WP-02), `merkle`, `blob`, `sign`, `evidence`(WP-03), `check`, `disclose`(WP-04)이다. `anchor`는 문서 주석만 있는 빈 파일이다(WP-08). 동결 vector `tests/vectors/norea-evidence-v1.json`이 생성되어 있고 `core/tests/vectors.rs`가 대조한다. `norea.evidence.v1`과 `record.shape.v1`은 2026-11-09 머리 수락으로 Frozen이다. `norea.disclosure.v1`과 `norea.disclosure-report.v1`(disclosure-v1 §2~§4)도 WP-04 수락으로 Frozen이다. crate root에 `Key32 = [u8; 32]`가 있다.
 
 - 뼈대(WP-00): workspace `core`(noreacore), `web`(norea-web), `cli`(norea-cli). web/src는 export가 없다. CLI 두 바이너리(norea-verify, norea)는 `--help`만 하고 다른 호출은 exit 2.
 - `web/public/`의 JS/HTML은 이전 제품에서 이름만 바꿔 복사한 것이라 아직 새 API와 맞지 않는다(WP-06/07이 재작성). `tests/smoke.node.cjs`, `tests/platform.node.mjs`도 같다. 그래서 `scripts/test.sh`에서 2단계 node e2e와 3단계 플랫폼 계약은 꺼져 있다.
@@ -47,7 +47,7 @@ shape-v1 **r2.2** 구현. `Kind`, `FieldShape`, `Shape`, `infer_shape`, `auto_ma
 - STRING: char 단위 토큰화(D `0-9`, H U+AC00..D7A3, L `A-Za-z`, 그 외 literal 1개, 정규화 없음). 템플릿(첫 등장 순서)마다 count, D 슬롯 min/max, anchor 목록이 있다. anchor 목록은 모든 H/L 슬롯 값이 (템플릿, 슬롯) 안에서 빈도 2 이상인 값들의 H/L 값이고, 행 순서와 중복을 유지하며, 비면 전체를 쓴다. 템플릿 수 == m이면 OPAQUE.
 - `space_log2_x100`: libm 없이 IEEE 기본 연산으로 log2를 구해 100배 정수로 둔다. NUMERIC은 max(1, G), STRING은 Σ_t (anchor H/L 조합 수 · Π D 범위), CATEGORICAL/BOOL은 d다. OPAQUE/EMPTY에는 없다.
 - `auto_markers`(§4.1): kind STRING/NUMERIC, `missing_ppm < 200000`, 빈 공간(NUMERIC G ≥ d, STRING space ≥ 2d). (d 내림차순, STRING 먼저, 이름 바이트 오름차순) 앞 3개. 없으면 NoMarker이고, 메시지에 필드별 탈락 이유(kind / missing / free space)를 적는다.
-- `inspect`: InspectResult JSON. camelCase이고 `pMissing`, `spaceLog2`는 정수에서 유도한 표시용 float다. `warnings: [{code, field?}]`는 OPAQUE_FIELD, UNIQUE_OPAQUE_COPIED, LOW_FREE_SPACE, HIGH_MISSING, NUMERIC_CODE_LIKE(필드 순서)이고, 마지막에 NO_MARKER_CANDIDATE.
+- `inspect`: InspectResult JSON. camelCase이고 `pMissing`, `spaceLog2`는 정수에서 유도한 표시용 float다. `warnings: [{code, field?}]`는 OPAQUE_FIELD, UNIQUE_OPAQUE_COPIED, NO_FREE_SPACE 또는 LOW_FREE_SPACE, HIGH_MISSING, NUMERIC_CODE_LIKE(필드 순서)이고, 마지막에 NO_MARKER_CANDIDATE. NO_FREE_SPACE는 unique STRING/NUMERIC 필드의 빈 공간이 0일 때(NUMERIC `G == 0`, STRING `space <= d`, `FieldShape::no_free_space`)이고, 그 필드에는 LOW_FREE_SPACE를 내지 않는다.
 - `shape_summary`(§6.1): 정수만. 필드별 `{kind, unique, distinct, missing_ppm, space_log2_x100?}`, 테이블 필드 순서.
 
 ### canary (`core/src/canary.rs`)
@@ -63,7 +63,7 @@ shape-v1 **r2.2** 구현. `Kind`, `FieldShape`, `Shape`, `infer_shape`, `auto_ma
   - STRING은 `normalize_text`가 실제 값 ∪ (marker면) exclusions ∪ 앞선 canary에 있으면 기각.
   - NUMERIC은 값 기준이다. 정렬 집합에서 |x − c| < 0.5·10^-s인 x가 있으면 기각(s는 후보 텍스트의 소수 자릿수). exclusions는 `normalize_number`로 파싱한다.
   - marker가 결측으로 뽑히면 기각.
-  - 64회 실패 → `CanaryExhausted "canary i: no acceptable candidate"`.
+  - 64회 실패 → `CanaryExhausted "canary i: no acceptable candidate (field f)"`. f는 그 canary에서 기각을 가장 많이 일으킨 필드(동률이면 필드 순서상 앞)이고 값은 넣지 않는다. 연번 `1..N` 같은 dense unique 필드가 있으면 그 필드 이름이 나온다.
 - 운영자 marker: 1~4개. 중복·없는 필드 → BadInput. OPAQUE → NoMarker(`field X has no reusable shape; choose other marker fields`). CATEGORICAL/BOOL/EMPTY → NoMarker. 빈 공간 조건은 요구하지 않는다. n = 0 → BadInput.
 - 삽입: `pos_i = draw(K_d,"pos",i,0,0) mod (L+i+1)`를 순서대로 적용해 최종 위치를 계산하고 `serialize_with_inserts` 한 번으로 출력한다. CSV canary 셀은 모두 Str(결측은 `""`).
 - 성능: 5만 행 JSON(7.25 MB) `mark(n=64)` release 약 0.15 s(Apple M4).
@@ -86,6 +86,26 @@ evidence-v1 §7.3. `K_blob = HKDF-SHA256(salt "norea/canary-blob/v1", ikm K_d, i
 - `verify_evidence`(비밀 없음): `signature_ok`는 validate_fields 통과와 서명 검증이 모두 참이어야 참이다. `evidence_id_ok`가 있다. `blob_hash_ok`는 blob이 비어 있지 않고 SHA-256이 일치해야 참이다. anchor마다 `imprint_ok: false, chain_verified: false, error: "anchor verification not implemented"`를 넣고(WP-08 전까지), `has_anchors`를 둔다.
 - 성능: 5만 행 JSON(6.0 MB) `build_evidence(n=64)` release 128~139 ms(Apple M4, rustc 1.99.1).
 
+### check (`core/src/check.rs`)
+shape-v1 §7. `SuspectKind {Json, Csv, Text}`, `detect_suspect_kind`, `MatchResult`, `PerIndex`, `match_rows`(비밀 없음), `check`, `CHECK_REPORT_SCHEMA`. 정규식 crate 없이 수동 스캐너.
+- `detect_suspect_kind`: BOM을 뗀 바이트가 JSON 값이면 Json. 아니면 첫 비공백 문자가 `<`이면 Text(HTML). 아니면 UTF-8이고 RFC 4180으로 나눈 레코드의 셀 수가 모두 같고 2 이상이면 Csv. 그 외 Text.
+- 값 비교(§7.1): canary `Str`은 문자열 규칙(`normalize_text` 동일, 의심 숫자도 텍스트로 비교). 그 Str이 `normalize_number`로 파싱되면(CSV evidence의 숫자 열) 숫자 규칙도 함께 적용하고 하나라도 성립하면 발견이다. canary `Num`은 숫자 규칙: 의심 값을 `normalize_text` 후 `normalize_number`로 파싱해 `|x − v| < 0.5·10^-s`(s = canary 텍스트의 소수 자릿수)를 i128 정수 연산으로 판정한다(36자리 초과는 비교 안 함). `Missing`/`Null`/OPAQUE marker 값은 찾지 않는다.
+- 레코드(§7.2, 행 배열 경계): 원소 중 object나 배열이 하나라도 있는 배열이 "행 배열"이다. 행 배열의 object/배열 원소 각각이 독립 레코드이고 scalar 원소는 무시한다. 레코드의 값은 그 레코드에서 object 멤버와 scalar 배열을 따라 닿는 scalar leaf(키 무시, string, number, bool의 텍스트. null 제외)이고 행 배열 안으로는 들어가지 않는다. 최상위 object는 그 자체가 레코드(감싸는 object면 메타데이터 값만), 최상위 배열은 행 배열 규칙을 따른다. 그래서 `{"data":[...]}`처럼 감싸도 서로 다른 행의 값이 한 레코드로 합쳐지지 않고, 행 안의 중첩 object, 배열인 행(`[[...],[...]]`), `{"row":{...}}`로 한 번 더 감싼 행은 한 레코드로 잡힌다. CSV는 관대한 RFC 4180 분할(빈 줄 건너뜀)로 레코드마다 셀 전부, 첫 레코드(헤더)도 레코드다. Json/Csv로 넘겼는데 파싱이 안 되면 텍스트로 찾는다.
+- 일치(§7.3): marker 중 threshold(= min(2, 개수))개 이상이 한 레코드에서 발견되면 matched, 최대 발견 수가 1 이상이면 partial. `record_hint`는 일치한 레코드 중 leaf 수가 가장 적은 것(동률이면 문서 순서상 앞), partial이면 발견 수 최대 → leaf 최소 → 문서 순서. 형식은 JSON `$[12]`, `$.data[3]`, `$["키"]`, CSV `record N`(0부터), 텍스트 `text offset N`(정규화된 텍스트의 문자 위치).
+- 텍스트/HTML(§7.4): HTML 판정은 첫 비공백 문자 `<` 또는 `<html`/`<body`/`<table` 포함(ASCII 대소문자 무시). `<script>`, `<style>` 내용과 주석을 지우고, 태그는 공백 하나로 바꾼다(인접 셀이 붙지 않게). 그다음 entity(`&amp; &lt; &gt; &quot; &apos; &nbsp;`(U+00A0), `&#N;`, `&#xH;`)를 디코드하고, 줄바꿈(CR, LF, FF)은 공백으로 바꾼 뒤 전체를 `normalize_text`한다. 비HTML 텍스트는 바로 `normalize_text`. marker 패턴은 문자열이면 정규화형이다. 숫자(Num, 또는 숫자로 파싱되는 Str)면 생성 텍스트, 후행 0 제거형, 그리고 둘의 천단위 콤마형(`1200.00`, `1200`, `1,200.00`, `1,200`)이다. 모든 패턴은 앞뒤 문자가 Unicode 영숫자가 아니어야 한다(`P-2170` 안의 `P-217`은 아님). 숫자 패턴은 추가로 숫자가 따라붙은 `.`/`,`도 없어야 한다(`1330.5`, `1,330.5`, `330.55` 안의 `330.5`는 아님). threshold개의 서로 다른 marker 시작 위치가 512자 이내(차이 ≤ 512)이면 matched.
+- `check(suspect, k_d, ev)`: canary_kind가 `record.shape.v1`이 아니면 BadEvidence. blob을 열고(`open_blob`), rows 수 == 서명된 `canary_count`이고 재계산한 Merkle root == `canary_root`이면 `commit_ok`. commit_ok가 false면 대조하지 않는다(matched 0, partial 0, absent = canary_count). report 키 순서는 §7.5(`schema, evidence_id, suspect_sha256, suspect_kind, total, matched, partial, absent, matched_indices, partial_indices, per_index, evidence{signature_ok, evidence_id_ok, blob_hash_ok, anchors}, commit_ok`)이고 `per_index`는 matched와 partial만 담는다.
+- 성능: 5만 행 사본 check(n = 32) release JSON 5.7 MB 약 94 ms, CSV 2.4 MB 약 74 ms, HTML 10.5 MB 약 143 ms(Apple M4, rustc 1.99.1).
+
+### disclose (`core/src/disclose.rs`)
+disclosure-v1. `SuspectMeta`, `disclose`, `verify_disclosure`, `DISCLOSURE_SCHEMA`, `DISCLOSURE_REPORT_SCHEMA`.
+- `disclose`(§3, K_d 필요): created_claim은 evidence와 같은 형식 검사(BadInput), canary_kind 검사, evidence가 `verify_evidence`를 통과해야 한다(BadEvidence). blob이 열리고 commit해야 한다(BadBlob). indices가 None이나 빈 배열이면 matched 전부, 그래도 비면 BadDisclosure. 명시 indices는 정렬하고 중복·범위 밖은 BadInput, matched가 아닌 index는 `force` 없이는 BadDisclosure. 출력 키는 `schema, created_claim, evidence(수정 없이 통째로, blob 포함), suspect{sha256, kind, 있는 *_claim만}, disclosed[{index, row, path}], shape(blob의 shape summary)`. row는 canon_row 바이트를 그대로 JSON으로 읽은 것(키 정렬), path는 RFC 9162 audit path hex(leaf→root). `operator_note`는 쓰지 않는다.
+- `verify_disclosure`(§4, 비밀 없음, blob은 `verify_evidence`의 해시만): 구조 문제(JSON 아님, schema, evidence 파싱 실패, canary_kind, suspect.sha256 없음, disclosed 항목 형식, index가 오름차순·중복 없음이 아님, path가 hex64 배열이 아님)는 BadDisclosure 에러. 그 밖의 실패는 report에 담는다. 항목마다 `merkle_ok` = 서명된 `canary_count`로 `verify_audit_path` 통과(index ≥ count면 실패) 그리고 marker 필드가 모두 있음(Missing/Null 아님). 대조는 공개된 row만으로 `match_rows`(종류는 사본 바이트에서 다시 감지). report 키 순서는 `schema, evidence{signature_ok, evidence_id_ok, blob_hash_ok, evidence_id, anchors(AnchorCheck 그대로)}, suspect_hash_ok, disclosed[{index, merkle_ok, matched, found}], summary{disclosed, merkle_ok, matched, not_reproduced}, verdict{integrity_ok, all_reproduced}, statement`. `integrity_ok` = signature_ok && evidence_id_ok && blob_hash_ok && suspect_hash_ok && disclosed 수 ≥ 1 && merkle_ok 수 == disclosed 수(statement 첫 줄 `무결성:`과 항상 같은 판정), `all_reproduced` = not_reproduced == 0(disclosure-v1 §4. CLI 종료 코드는 둘 다 true면 0, 아니면 1, 구조 `Err`는 2).
+- statement(한국어, 줄 단위): `무결성: PASS|FAIL (이유)`(evidence 검증, 사본 해시, Merkle 전부, 공개 0개 아님), 서명과 공개키 지문(SHA-256(vk) 앞 16 hex), evidence_id, 시점(검증된 TSA anchor가 없으면 "이 증거는 생성 시점을 증명하지 않는다". WP-08 전까지 anchor는 항상 미검증), 사본 해시, Merkle 수, "공개된 canary N개 중 M개가 사본에서 재현되었다", `NOT REPRODUCED: index ...`, shape가 있고 모든 marker에 `space_log2_x100`이 있으면 확률 줄(shape-v1 §6.1): `X = (가장 작은 t개 space_log2 합) − log2 C(m,t)`(m = marker 수, t = threshold), 사본 레코드 수 R(JSON/CSV 경로에서 추출한 레코드 수, CSV는 헤더 포함)과 canary n(서명된 canary_count)으로 기대 수 `n·R·2^-X`. 텍스트 경로면 R 불명이라 기대 수는 쓰지 않는다. 생성기 모델 상한이라는 문장과 shape가 운영자 제공이라 미검증이라는 문장이 붙는다. 마지막 줄은 `*_claim`이 미검증이라는 문장. 동결 vector json evidence에서 X = 13.25, R = 10, n = 4.
+
+### 대조 한계
+- 구조 경로는 "행 = 행 배열의 원소"를 전제한다. 한 행의 값을 서로 다른 object 배열에 나눠 넣은 변환(EAV)은 구조 경로로 못 잡는다(shape-v1 §8 한계 6). 텍스트 경로 fallback은 없다(v2).
+- 측정: 데이터셋 A와 같은 생성기로 만든 독립 데이터(seed 2~5, 우리 canary 없음)는 평평한 배열이든 `{"data":[...]}`로 감싸든 matched 0이고 partial 수가 같다(14, 13, 15, 18). partial의 대부분은 id(L1-D3 공간) 우연 일치다.
+
 ### 동결 vector (`core/tests/vectors.rs`, `tests/vectors/norea-evidence-v1.json`)
 입력은 WP-03 스펙 "동결 vector 입력"이다(K = 0x11×32, seed = 0x22×32, dataset_id `vector/records/v1`, created_claim `2026-11-08T00:00:00Z`, n = 4, 6행 JSON 한 줄과 끝 LF 없음, CSV 7레코드 모두 LF). 케이스 json과 csv마다 `input_utf8, k_d_hex, k_blob_hex, markers, canaries, marked_utf8, canary_root, blob_hex, payload_utf8, evidence_id, anchor_subject_hex, vk_sha256, evidence`를 고정한다. 테스트는 K_d와 K_blob을 hkdf로 따로 계산해 대조하고, 고정된 evidence가 단독으로 검증되는지 확인한다(서명, id, blob 해시, 11행 payload, blob 복호화 rows == canaries, Merkle root). 자동 marker는 두 포맷 모두 `["addr","id","area_m2"]`. `SIG_CTX`를 1바이트 바꾸면 이 테스트가 실패한다(WP-03 2차에서 확인). 재생성은 `NOREA_WRITE_VECTORS=1 cargo test -p noreacore --test vectors`이고 포맷 변경 승인 후에만 한다.
 
@@ -100,6 +120,8 @@ evidence-v1 §7.3. `K_blob = HKDF-SHA256(salt "norea/canary-blob/v1", ikm K_d, i
 
 ### 테스트 도구
 - `core/tests/shape_vectors.rs` + `tests/vectors/shape-v1.json`: draw 값과 canary canonical 행 vector(동결 아님). `NOREA_WRITE_VECTORS=1 cargo test -p noreacore --test shape_vectors`로 재생성.
+- `core/tests/check_disclose.rs`: WP-04 수락 기준 1~16. 데이터셋 A n = 32의 변형 사본 8종, marker 삭제, 무관한 데이터, 잘못된 K_d, 변조, 텍스트 window와 경계, disclose, verify_disclosure 변조 케이스와 verdict, 비밀 없는 verifier, 5만 행 시간, 감싼 독립 데이터, 행 모양 3종, CSV evidence, `&nbsp;`, 동결 vector evidence로 matched 4와 확률 줄. `-- --nocapture`로 측정치와 예시 JSON을 출력한다.
+- `core/tests/common/mod.rs`: 테스트용 PRNG와 데이터셋 A 생성기. distinguishability.rs와 check_disclose.rs가 같이 쓴다.
 - `core/tests/distinguishability.rs`: §9 r2.2 판정(n = 1000, 자동 marker)과 n = 64 보고.
   - 지표: 직접 구현한 로지스틱 회귀 5-fold AUC, 필드별 ablation, KS bootstrap, Monte Carlo χ², §5.3 기준 충돌, NUMERIC decile 비율, 시↔동 불일치.
   - 결측률은 K = 10 키 평균을 실제 n·K 행 bootstrap 95% 구간과 비교한다(`missing_rate_judgement`). 키별 90% band는 보고만 한다.
@@ -107,7 +129,7 @@ evidence-v1 §7.3. `K_blob = HKDF-SHA256(salt "norea/canary-blob/v1", ikm K_d, i
   - `full_report`(키 2~3 판정, n = 64와 A' 보고)와 `public_csv`(`NOREA_PUBLIC_CSV=경로 [NOREA_PUBLIC_CSV_SHA256=hex]`, 키 1~3 판정과 결측률 판정)는 `-- --ignored`로 돌린다.
 
 ### 검증 상태
-`cargo test -p noreacore`(lib 56 + shape_vectors 1 + distinguishability 1, ignored 2. vectors 1), `cargo clippy -p noreacore --all-targets -- -D warnings`, wasm32 release build, getrandom 0(`cargo tree -p norea-web --target wasm32-unknown-unknown`), `cargo deny check`, `./scripts/test.sh`(ALL CHECKS PASSED)가 통과한다. 상세: `/Users/mac/dev/derator/Fable_5_1/tasks/reports/WP-01.md`, `WP-02.md`, `WP-03.md`.
+`cargo test -p noreacore`(lib 68 + check_disclose 15 + shape_vectors 1 + distinguishability 1, ignored 2. vectors 1), `cargo clippy -p noreacore --all-targets -- -D warnings`, wasm32 release build, getrandom 0(`cargo tree -p norea-web --target wasm32-unknown-unknown`), `cargo deny check`, `./scripts/test.sh`(ALL CHECKS PASSED)가 통과한다. 상세: `/Users/mac/dev/derator/Fable_5_1/tasks/reports/WP-01.md`, `WP-02.md`, `WP-03.md`, `WP-04.md`.
 
 ## 불변 조건 (바꾸려면 ADR + 희진 승인)
 

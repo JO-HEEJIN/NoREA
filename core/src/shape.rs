@@ -137,6 +137,19 @@ impl FieldShape {
             _ => false,
         }
     }
+
+    /// §6.2 NO_FREE_SPACE: a protected (unique, final kind STRING/NUMERIC) field
+    /// with no free space at all: NUMERIC `G == 0`, STRING `space <= d`.
+    pub fn no_free_space(&self) -> bool {
+        if !self.unique {
+            return false;
+        }
+        match self.kind {
+            Kind::Numeric => self.numeric.as_ref().is_some_and(|n| n.gaps == 0),
+            Kind::String => self.string_space <= self.distinct as f64,
+            _ => false,
+        }
+    }
 }
 
 /// Shape of a table.
@@ -611,7 +624,9 @@ pub fn inspect(bytes: &[u8], format: Option<Format>) -> Result<String, Error> {
                 }
             }
             Kind::String | Kind::Numeric => {
-                if !f.has_free_space() {
+                if f.no_free_space() {
+                    warnings.push(warning("NO_FREE_SPACE", name));
+                } else if !f.has_free_space() {
                     warnings.push(warning("LOW_FREE_SPACE", name));
                 }
                 if f.missing_ppm >= MAX_MARKER_MISSING_PPM {
@@ -933,7 +948,7 @@ mod tests {
             v["warnings"],
             json!([
                 {"code": "NUMERIC_CODE_LIKE", "field": "code"},
-                {"code": "LOW_FREE_SPACE", "field": "seq"},
+                {"code": "NO_FREE_SPACE", "field": "seq"},
                 {"code": "OPAQUE_FIELD", "field": "memo"},
                 {"code": "UNIQUE_OPAQUE_COPIED", "field": "memo"},
             ])

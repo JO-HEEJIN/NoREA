@@ -104,7 +104,7 @@ fn check_dataset_id(s: &str) -> Result<(), Error> {
 }
 
 /// `YYYY-MM-DDTHH:MM:SSZ`, exactly 20 chars, field ranges checked.
-fn check_created_claim(s: &str) -> Result<(), Error> {
+pub(crate) fn check_created_claim(s: &str) -> Result<(), Error> {
     check_line(s, "created_claim")?;
     let b = s.as_bytes();
     let err = || bad_input("created_claim must be RFC 3339 UTC YYYY-MM-DDTHH:MM:SSZ");
@@ -165,7 +165,7 @@ fn format_name(f: Format) -> &'static str {
     }
 }
 
-fn decode_hex32(s: &str) -> Option<[u8; 32]> {
+pub(crate) fn decode_hex32(s: &str) -> Option<[u8; 32]> {
     if s.len() != 64 {
         return None;
     }

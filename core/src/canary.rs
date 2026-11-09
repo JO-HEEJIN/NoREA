@@ -399,20 +399,28 @@ pub fn mark(original: &[u8], format: Format, k_d: &Key32, opts: &MarkOptions) ->
     let mut canaries: Vec<Row> = Vec::with_capacity(opts.n as usize);
     for i in 0..opts.n {
         let mut accepted = None;
+        // Rejections per field for this canary; only names the field in the
+        // CanaryExhausted message (§5.3). Generation is unchanged.
+        let mut rejects = vec![0u32; nf];
         'attempts: for attempt in 0..MAX_ATTEMPTS {
             let mut s = Stream { mac: &mac, i, attempt: attempt as u8, ctr: 0 };
             let mut cells = Vec::with_capacity(nf);
             for (j, f) in shape.fields.iter().enumerate() {
                 let cell = match gen_field(f, taken[j].is_some(), &gaps[j], format, &mut s) {
-                    Gen::Reject => continue 'attempts,
+                    Gen::Reject => {
+                        rejects[j] += 1;
+                        continue 'attempts;
+                    }
                     Gen::Missing(c) => {
                         if is_marker[j] {
+                            rejects[j] += 1;
                             continue 'attempts;
                         }
                         c
                     }
                     Gen::Value(c) => {
                         if taken[j].as_ref().is_some_and(|t| t.hits(&c)) {
+                            rejects[j] += 1;
                             continue 'attempts;
                         }
                         c
@@ -424,7 +432,17 @@ pub fn mark(original: &[u8], format: Format, k_d: &Key32, opts: &MarkOptions) ->
             break;
         }
         let Some(cells) = accepted else {
-            return Err(Error::new(ErrorCode::CanaryExhausted, format!("canary {i}: no acceptable candidate")));
+            // Field with the most rejections; ties go to the first in field order. Name only, no value.
+            let mut worst = 0;
+            for (j, &r) in rejects.iter().enumerate() {
+                if r > rejects[worst] {
+                    worst = j;
+                }
+            }
+            return Err(Error::new(
+                ErrorCode::CanaryExhausted,
+                format!("canary {i}: no acceptable candidate (field {})", shape.fields[worst].name),
+            ));
         };
         for (j, c) in cells.iter().enumerate() {
             if let Some(t) = taken[j].as_mut() {
@@ -834,9 +852,29 @@ mod tests {
         let o = MarkOptions { n: 1, marker_fields: Some(vec!["k".into()]), exclusions: vec![] };
         let e = mark(src.as_bytes(), Format::Json, &K1, &o).unwrap_err();
         assert_eq!(e.code, ErrorCode::CanaryExhausted);
-        assert_eq!(e.message, "canary 0: no acceptable candidate");
+        assert_eq!(e.message, "canary 0: no acceptable candidate (field k)");
         // and auto selection refuses it (free space condition)
         assert_eq!(mark(src.as_bytes(), Format::Json, &K1, &opts(1)).unwrap_err().code, ErrorCode::NoMarker);
+    }
+
+    /// WP-04 carry-over: a serial 1..N column is a protected unique NUMERIC with
+    /// G == 0. inspect says NO_FREE_SPACE (not LOW_FREE_SPACE) and mark names it.
+    #[test]
+    fn serial_column_no_free_space() {
+        let rows: Vec<String> = (1..=100).map(|i| format!("{{\"seq\":{i},\"code\":\"K-{:04}\"}}", i * 7)).collect();
+        let src = format!("[{}]", rows.join(","));
+        let v: serde_json::Value = serde_json::from_str(&crate::shape::inspect(src.as_bytes(), None).unwrap()).unwrap();
+        assert_eq!(v["warnings"], serde_json::json!([{"code": "NO_FREE_SPACE", "field": "seq"}]));
+        assert_eq!(v["suggestedMarkers"], serde_json::json!(["code"]));
+        let e = mark(src.as_bytes(), Format::Json, &K1, &opts(1)).unwrap_err();
+        assert_eq!(e.code, ErrorCode::CanaryExhausted);
+        assert_eq!(e.message, "canary 0: no acceptable candidate (field seq)");
+        // CSV: same field, same message
+        let csv: String = std::iter::once("seq,code\n".to_string())
+            .chain((1..=100).map(|i| format!("{i},K-{:04}\n", i * 7)))
+            .collect();
+        let e = mark(csv.as_bytes(), Format::Csv, &K1, &opts(1)).unwrap_err();
+        assert_eq!(e.message, "canary 0: no acceptable candidate (field seq)");
     }
 
     #[test]
