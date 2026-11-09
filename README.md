@@ -94,7 +94,7 @@ Frozen 포맷: `norea.evidence.v1`(signing payload 바이트, `SIG_CTX = "norea/
 
 ## 설계 문서
 
-설계(규범), ADR 14개, 프로토콜 스펙, 위협 모델, 작업 보고서는 이 저장소 밖 `Fable_5_1/`에 있다(작성자 환경 기준 `docs/design/`: `docs/adr/`, `docs/protocol/`, `docs/THREAT-MODEL.md`, `docs/CORE-API.md`, `tasks/reports/`). 이 저장소의 현재 동작은 `CONTEXT.md`가 기준이다.
+설계(규범), ADR 14개, 프로토콜 스펙, 위협 모델은 `docs/design/`에 있다(`docs/design/adr/`, `docs/design/protocol/`, `docs/design/THREAT-MODEL.md`, `docs/design/CORE-API.md`). 이 저장소의 현재 동작은 `CONTEXT.md`가 기준이다.
 
 ## 설계 문서
 
