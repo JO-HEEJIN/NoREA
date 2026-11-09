@@ -1,26 +1,48 @@
-// Key custody for the browser build.
+// Web key custody, norea.custody-backup.v1 (Fable_5_1/docs/protocol/custody-web-v1.md).
 //
-// Secrets: master key K (32 B) + ML-DSA seed (32 B) = 64 B, wrapped with
-// AES-256-GCM under a key-encryption key (KEK). The KEK comes from:
-//   1. WebAuthn PRF (preferred): a hardware-backed secret released only after
-//      user verification (Face ID / Touch ID / Windows Hello / phone).
-//      Used purely as a local KDF. There is no server and no login here.
-//   2. Argon2id(passphrase) fallback, computed in WASM, when PRF is missing.
-// The wrapped blob lives in IndexedDB. Nothing secret leaves the browser.
+// secrets = K (32 B) || seed (32 B), from crypto.getRandomValues (WASM has no RNG).
+// KEK     = HKDF-SHA256(salt = 32 x 0x00, ikm = S, info = "norea/kek/v1"), AES-256-GCM key
+//           S = WebAuthn PRF output (method "prf") or Argon2id(passphrase) from WASM
+//           passphraseKek (method "passphrase", m = 64 MiB, t = 3, p = 1).
+// blob    = AES-256-GCM(KEK, iv 12 B random, AAD = "norea/custody/v1", secrets) -> IndexedDB.
+// PRF is a local KDF only. There is no server and no login.
 //
-// Honest limit: while signing, the unwrapped seed is in page memory. PRF
-// protects the key at rest, not in use. See ADR-006.
+// Secret handling (platform-contract "비밀 처리 규칙 (web)"): withSecrets() unwraps,
+// hands K and seed to exactly one WASM call, and fills the buffer with 0 in finally.
+// S is filled with 0 right after the KEK is derived. The KEK is a non-extractable
+// CryptoKey. A passphrase is a JS string and cannot be wiped (ADR-0006).
+// Nothing here logs, and no error message carries a secret.
+//
+// Honest limit: while signing, the seed is in page memory (hardwareDuringSigning: false).
 
-import * as pg from './pkg/norea_web.js';
+import * as wasm from './pkg/norea_web.js';
 
 const DB = 'norea', STORE = 'custody', KEY = 'v1';
+export const BACKUP_FORMAT = 'norea.custody-backup.v1';
 const te = new TextEncoder();
-const PRF_SALT = te.encode('norea/prf/v1');   // fixed: same passkey -> same PRF output
+const PRF_SALT = te.encode('norea/prf/v1');   // same passkey -> same PRF output
 const HKDF_INFO = te.encode('norea/kek/v1');
-const AAD = te.encode('norea/custody/v1');    // binds ciphertext to purpose + version
+const AAD = te.encode('norea/custody/v1');
+const KDF = Object.freeze({ alg: 'argon2id', m: 65536, t: 3, p: 1 }); // what passphraseKek computes
+const IV_LEN = 12, CT_LEN = 64 + 16, VK_LEN = 1952;
+
+/**
+ * Error with a platform-contract code: KEY_MISSING, KEY_EXISTS, BAD_PASSPHRASE,
+ * PRF_UNSUPPORTED, CANCELLED or BACKUP_INVALID.
+ */
+export function custodyError(code, message) {
+  const e = new Error(message);
+  e.code = code;
+  e.platform = true;
+  return e;
+}
+
+/** created_claim / createdClaim: exactly 20 chars, RFC 3339 UTC (evidence-v1 §5). A claim, not a time proof. */
+export const claimNow = () => new Date().toISOString().slice(0, 19) + 'Z';
+const CLAIM_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 
 // ---------------------------------------------------------------- storage
-let dbPromise = null; // one cached connection instead of one per operation
+let dbPromise = null; // one cached connection
 function idb() {
   dbPromise ??= new Promise((res, rej) => {
     const r = indexedDB.open(DB, 1);
@@ -38,9 +60,10 @@ async function tx(mode, fn) {
   const db = await idb();
   return new Promise((res, rej) => {
     const t = db.transaction(STORE, mode);
-    const out = fn(t.objectStore(STORE));
-    t.oncomplete = () => res(out.result);
+    const req = fn(t.objectStore(STORE));
+    t.oncomplete = () => res(req.result);
     t.onerror = () => rej(t.error);
+    t.onabort = () => rej(t.error);
   });
 }
 const load = () => tx('readonly', s => s.get(KEY));
@@ -48,78 +71,130 @@ const save = rec => tx('readwrite', s => s.put(rec, KEY));
 
 export async function hasCustody() { return !!(await load()); }
 
-/** Ask the browser not to evict our storage (Safari evicts script-writable
- *  storage of sites not visited for a while). Backup export is still mandatory. */
+/** Public part of the record: `{method, vk, createdClaim}` or null. */
+export async function info() {
+  const rec = await load();
+  return rec ? { method: rec.method, vk: rec.vk, createdClaim: rec.createdClaim ?? null } : null;
+}
+
+export async function remove() { await tx('readwrite', s => s.delete(KEY)); persistedResult = null; }
+
+// §2: the persist() result lives outside the record (here: memory for this page).
+let persistedResult = null;
+
+/** Ask the browser not to evict the store (§2). true | false | "unknown" (no StorageManager). */
 export async function requestPersistence() {
-  try { return (await navigator.storage?.persist?.()) === true; } catch { return false; }
+  try {
+    const persist = globalThis.navigator?.storage?.persist;
+    persistedResult = typeof persist === 'function' ? (await globalThis.navigator.storage.persist()) === true : 'unknown';
+  } catch { persistedResult = 'unknown'; }
+  return persistedResult;
+}
+
+/**
+ * keyInfo().persisted: the result of this page's persist() request if there was
+ * one, else the browser's current state (`persisted()`, no prompt), else "unknown".
+ */
+export async function persistedState() {
+  if (persistedResult !== null) return persistedResult;
+  try {
+    const persisted = globalThis.navigator?.storage?.persisted;
+    if (typeof persisted === 'function') return (await globalThis.navigator.storage.persisted()) === true;
+  } catch { /* fall through */ }
+  return 'unknown';
 }
 
 // ---------------------------------------------------------------- KEK
-async function kekFrom(secret32) {
-  const base = await crypto.subtle.importKey('raw', secret32, 'HKDF', false, ['deriveKey']);
-  return crypto.subtle.deriveKey(
-    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(32), info: HKDF_INFO },
-    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+async function kekFrom(s32) {
+  try {
+    const base = await crypto.subtle.importKey('raw', s32, 'HKDF', false, ['deriveKey']);
+    return await crypto.subtle.deriveKey(
+      { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(32), info: HKDF_INFO },
+      base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  } finally {
+    s32.fill(0);
+  }
 }
 
+/** true | false | "unknown" (§4). "unknown": try PRF and fall back to a passphrase on failure. */
 export async function prfAvailable() {
-  if (!window.PublicKeyCredential) return false;
+  const PKC = globalThis.PublicKeyCredential;
+  if (!PKC) return false;
+  if (typeof PKC.getClientCapabilities !== 'function') return 'unknown';
   try {
-    const caps = await PublicKeyCredential.getClientCapabilities?.();
-    if (caps && 'extension:prf' in caps) return !!caps['extension:prf'];
-  } catch { /* unknown: try it and fall back on failure */ }
-  return true;
+    const caps = await PKC.getClientCapabilities();
+    if (caps && typeof caps['extension:prf'] === 'boolean') return caps['extension:prf'];
+  } catch { /* fall through */ }
+  return 'unknown';
 }
+
+const passkeyCancelled = () => custodyError('CANCELLED', '패스키 인증이 취소되었거나 완료되지 않았습니다.');
+const noWebAuthn = () => custodyError('PRF_UNSUPPORTED', '이 브라우저에서는 패스키(WebAuthn)를 쓸 수 없습니다. 패스프레이즈 방식을 쓰세요.');
+const hasWebAuthn = () => typeof globalThis.navigator?.credentials?.create === 'function' && !!globalThis.PublicKeyCredential;
 
 async function prfEval(credId) {
-  const a = await navigator.credentials.get({ publicKey: {
-    challenge: crypto.getRandomValues(new Uint8Array(32)),
-    allowCredentials: [{ type: 'public-key', id: credId }],
-    userVerification: 'required',
-    extensions: { prf: { eval: { first: PRF_SALT } } },
-  }});
-  const out = a.getClientExtensionResults().prf?.results?.first;
-  if (!out) throw new Error('이 인증기는 PRF 값을 돌려주지 않았습니다. 패스프레이즈 방식을 쓰세요.');
+  if (!hasWebAuthn()) throw noWebAuthn();
+  let a;
+  try {
+    a = await navigator.credentials.get({ publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      allowCredentials: [{ type: 'public-key', id: credId }],
+      userVerification: 'required',
+      extensions: { prf: { eval: { first: PRF_SALT } } },
+    } });
+  } catch { throw passkeyCancelled(); }
+  const out = a?.getClientExtensionResults?.().prf?.results?.first;
+  if (!out) throw custodyError('PRF_UNSUPPORTED', '이 패스키는 PRF 값을 돌려주지 않았습니다. 패스프레이즈 백업으로 복원하세요.');
   return new Uint8Array(out);
 }
 
 async function createPrfPasskey() {
-  const cred = await navigator.credentials.create({ publicKey: {
-    rp: { name: 'NoREA' },
-    user: { id: crypto.getRandomValues(new Uint8Array(16)), name: 'norea', displayName: 'NoREA 서명키' },
-    challenge: crypto.getRandomValues(new Uint8Array(32)),
-    pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
-    authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
-    extensions: { prf: { eval: { first: PRF_SALT } } },
-  }});
+  if (!hasWebAuthn()) throw noWebAuthn();
+  let cred;
+  try {
+    cred = await navigator.credentials.create({ publicKey: {
+      rp: { name: 'NoREA' },
+      user: { id: crypto.getRandomValues(new Uint8Array(16)), name: 'norea', displayName: 'NoREA 서명키' },
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+      authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
+      extensions: { prf: { eval: { first: PRF_SALT } } },
+    } });
+  } catch { throw passkeyCancelled(); }
   const ext = cred.getClientExtensionResults();
-  if (!ext.prf?.enabled) throw new Error('이 인증기는 PRF를 지원하지 않습니다.');
+  if (!ext.prf?.enabled) {
+    // §4: the credential just created is orphaned; the web cannot delete it.
+    throw custodyError('PRF_UNSUPPORTED', '이 인증기는 PRF를 지원하지 않습니다. 방금 만든 패스키는 쓰이지 않은 채 남습니다(웹에서는 지울 수 없습니다). 패스프레이즈 방식으로 다시 만드세요.');
+  }
   const credId = new Uint8Array(cred.rawId);
-  // Some authenticators return PRF output at creation, most need a get().
-  const first = ext.prf.results?.first;
+  const first = ext.prf.results?.first; // some authenticators return it at creation, most need a get()
   return { credId, prf: first ? new Uint8Array(first) : await prfEval(credId) };
 }
 
-// ---------------------------------------------------------------- public API
-/** Create K + seed, wrap them, store. Returns the public verifying key. */
+// ---------------------------------------------------------------- setup / use
+/** Create K + seed, wrap, store. Refuses if a key exists (UI: confirmAction, then deleteKey). */
 export async function setup({ passphrase } = {}) {
-  const secrets = crypto.getRandomValues(new Uint8Array(64)); // [0,32)=K  [32,64)=seed
+  if (await load()) throw custodyError('KEY_EXISTS', '이미 서명키가 있습니다. 먼저 백업을 확인하고 기존 키를 삭제하세요.');
+  if (passphrase !== undefined && passphrase !== null && typeof passphrase !== 'string') {
+    throw custodyError('BAD_PASSPHRASE', '패스프레이즈는 문자열이어야 합니다.');
+  }
+  const secrets = crypto.getRandomValues(new Uint8Array(64)); // [0,32) = K, [32,64) = seed
   try {
-    let rec, raw;
+    let rec, s;
     if (passphrase) {
       const salt = crypto.getRandomValues(new Uint8Array(16));
-      raw = pg.passphraseKek(passphrase, salt);
-      rec = { v: 1, method: 'passphrase', kdf: { alg: 'argon2id', m: 65536, t: 3, p: 1 }, salt };
+      s = wasm.passphraseKek(passphrase, salt);
+      rec = { v: 1, method: 'passphrase', salt, kdf: { ...KDF } };
     } else {
       const { credId, prf } = await createPrfPasskey();
-      raw = prf;
+      s = prf;
       rec = { v: 1, method: 'prf', credId };
     }
-    const kek = await kekFrom(raw); raw.fill(0);
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    rec.iv = iv;
-    rec.ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: AAD }, kek, secrets));
-    rec.vk = pg.verifyingKey(secrets.subarray(32, 64));
+    const kek = await kekFrom(s);
+    rec.iv = crypto.getRandomValues(new Uint8Array(IV_LEN));
+    rec.ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: rec.iv, additionalData: AAD }, kek, secrets));
+    rec.vk = wasm.verifyingKey(secrets.subarray(32, 64)); // the seed's one crossing in setup
+    rec.createdClaim = claimNow();
     await save(rec);
     await requestPersistence();
     return { vk: rec.vk };
@@ -128,50 +203,101 @@ export async function setup({ passphrase } = {}) {
   }
 }
 
-/** Unwrap secrets, run fn, then zero them no matter what. */
+/**
+ * §4: load record -> S -> KEK -> decrypt -> fn(K, seed) -> fill(0) in finally.
+ * `fn` must hand K and seed to exactly one WASM call.
+ */
 export async function withSecrets(fn, { passphrase } = {}) {
   const rec = await load();
-  if (!rec) throw new Error('먼저 서명키를 만드세요.');
-  let raw;
-  if (rec.method === 'prf') raw = await prfEval(rec.credId);
-  else {
-    if (!passphrase) throw new Error('패스프레이즈가 필요합니다.');
-    raw = pg.passphraseKek(passphrase, rec.salt);
+  if (!rec) throw custodyError('KEY_MISSING', '서명키가 없습니다. 먼저 서명키를 만들거나 백업에서 복원하세요.');
+  let s;
+  if (rec.method === 'prf') {
+    s = await prfEval(rec.credId);
+  } else {
+    if (typeof passphrase !== 'string' || passphrase.length === 0) throw custodyError('BAD_PASSPHRASE', '패스프레이즈가 필요합니다.');
+    const k = rec.kdf;
+    if (k.alg !== KDF.alg || k.m !== KDF.m || k.t !== KDF.t || k.p !== KDF.p) {
+      throw custodyError('BACKUP_INVALID', '이 키의 Argon2id 파라미터는 이 버전에서 열 수 없습니다.');
+    }
+    s = wasm.passphraseKek(passphrase, rec.salt);
   }
-  const kek = await kekFrom(raw); raw.fill(0);
+  const kek = await kekFrom(s);
   let secrets;
   try {
     secrets = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: rec.iv, additionalData: AAD }, kek, rec.ct));
   } catch {
-    throw new Error('복호화 실패: 잘못된 패스프레이즈이거나 다른 패스키입니다.');
+    throw custodyError('BAD_PASSPHRASE', '키를 열 수 없습니다. 패스프레이즈가 틀렸거나 다른 패스키입니다.');
   }
   try {
-    return await fn({ masterK: secrets.subarray(0, 32), seed: secrets.subarray(32, 64) });
+    return await fn(secrets.subarray(0, 32), secrets.subarray(32, 64));
   } finally {
     secrets.fill(0);
   }
 }
 
-export async function publicKey() { return (await load())?.vk ?? null; }
-export async function method() { return (await load())?.method ?? null; }
+// ---------------------------------------------------------------- backup (§3)
+function b64(u8) {
+  let s = '';
+  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+const invalid = what => custodyError('BACKUP_INVALID', `백업 파일이 올바르지 않습니다: ${what}`);
+function unb64(s, what) {
+  if (typeof s !== 'string' || s.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(s)) throw invalid(`${what}는 base64여야 합니다.`);
+  return Uint8Array.from(atob(s), c => c.charCodeAt(0));
+}
+const intIn = (x, lo, hi) => Number.isInteger(x) && x >= lo && x <= hi;
 
-const b64 = u8 => btoa(String.fromCharCode(...u8));
-const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
-const BIN = ['credId', 'salt', 'iv', 'ct', 'vk'];
-
-/** Encrypted backup. Safe to store anywhere: useless without the passkey or passphrase. */
+/** Encrypted blob only. Useless without the passkey or the passphrase. */
 export async function exportBackup() {
   const rec = await load();
-  if (!rec) throw new Error('백업할 키가 없습니다.');
-  const out = { ...rec };
-  for (const k of BIN) if (out[k]) out[k] = b64(out[k]);
-  return te.encode(JSON.stringify({ format: 'norea.custody-backup.v1', ...out }));
+  if (!rec) throw custodyError('KEY_MISSING', '백업할 서명키가 없습니다.');
+  const out = { format: BACKUP_FORMAT, v: 1, method: rec.method };
+  if (rec.method === 'prf') out.credId = b64(rec.credId);
+  else { out.kdf = { ...rec.kdf }; out.salt = b64(rec.salt); }
+  out.iv = b64(rec.iv);
+  out.ct = b64(rec.ct);
+  out.vk = b64(rec.vk);
+  if (rec.createdClaim) out.createdClaim = rec.createdClaim;
+  return te.encode(JSON.stringify(out));
 }
 
+/** §3 import checks. Returns a clean IndexedDB record; unknown keys are dropped. */
+export function parseBackup(bytes) {
+  if (!(bytes instanceof Uint8Array)) throw invalid('바이트(Uint8Array)가 아닙니다.');
+  let j;
+  try { j = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); } catch { throw invalid('JSON이 아닙니다.'); }
+  if (!j || typeof j !== 'object' || Array.isArray(j)) throw invalid('JSON 객체가 아닙니다.');
+  if (j.format !== BACKUP_FORMAT) throw invalid(`format이 ${BACKUP_FORMAT}가 아닙니다.`);
+  if (j.v !== 1) throw invalid('v가 1이 아닙니다.');
+  if (j.method !== 'prf' && j.method !== 'passphrase') throw invalid('method를 알 수 없습니다.');
+  const rec = { v: 1, method: j.method };
+  if (j.method === 'prf') {
+    rec.credId = unb64(j.credId, 'credId');
+    if (rec.credId.length < 16 || rec.credId.length > 1023) throw invalid('credId 길이가 16..1023 B가 아닙니다.');
+  } else {
+    rec.salt = unb64(j.salt, 'salt');
+    if (rec.salt.length < 16 || rec.salt.length > 64) throw invalid('salt 길이가 16..64 B가 아닙니다.');
+    const k = j.kdf;
+    if (!k || typeof k !== 'object' || k.alg !== 'argon2id') throw invalid('kdf.alg가 argon2id가 아닙니다.');
+    if (!intIn(k.m, 8192, 1048576)) throw invalid('kdf.m이 8192..1048576 범위 밖입니다.');
+    if (!intIn(k.t, 1, 10)) throw invalid('kdf.t가 1..10 범위 밖입니다.');
+    if (k.p !== 1) throw invalid('kdf.p가 1이 아닙니다.');
+    rec.kdf = { alg: 'argon2id', m: k.m, t: k.t, p: 1 };
+  }
+  rec.iv = unb64(j.iv, 'iv');
+  if (rec.iv.length !== IV_LEN) throw invalid('iv가 12 B가 아닙니다.');
+  rec.ct = unb64(j.ct, 'ct');
+  if (rec.ct.length !== CT_LEN) throw invalid('ct가 80 B가 아닙니다.');
+  rec.vk = unb64(j.vk, 'vk');
+  if (rec.vk.length !== VK_LEN) throw invalid('vk가 1952 B가 아닙니다.');
+  // createdClaim is not an import condition (§3); kept only when well formed.
+  if (typeof j.createdClaim === 'string' && CLAIM_RE.test(j.createdClaim)) rec.createdClaim = j.createdClaim;
+  return rec;
+}
+
+/** Validate, then store (overwrites: the UI asks confirmAction first when a key exists). */
 export async function importBackup(bytes) {
-  const j = JSON.parse(new TextDecoder().decode(bytes));
-  if (j.format !== 'norea.custody-backup.v1') throw new Error('백업 파일 형식이 아닙니다.');
-  delete j.format;
-  for (const k of BIN) if (j[k]) j[k] = unb64(j[k]);
-  await save(j);
+  await save(parseBackup(bytes));
+  await requestPersistence(); // §2: after every store write
 }

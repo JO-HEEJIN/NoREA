@@ -106,3 +106,19 @@ WP-05 2차: 머리 답변(1차)대로 고쳤다.
 - `--export-anchors` README.txt와 `cli/README.md`의 ots 안내를 "WP-08에서 확정"으로 바꿨다.
 
 e2e는 5개를 더해 16개다. claim, force, 재현 가능 protect, evidence --json, ots README를 확인한다. 검증(실제 실행): workspace test, clippy, getrandom 0, deny, test.sh 모두 통과했다. core, vectors, Cargo.lock은 1차 이후 바뀌지 않았다.
+
+## WP-06 Review
+
+희진이 "WP-06 시작해"라고 했다(HANDS-PROTOCOL §1.4 "바로 해"). 계획 확인 단계 없이 진행했고 결과는 완료다.
+- 만든 것: `web/src/lib.rs`(CORE-API §2 12개 함수, 비밀은 `Vec<u8>`/`String` 소유 + zeroize, `CODE: message` 에러, anchor 두 함수는 `ANCHOR_UNAVAILABLE`), `web/public/custody.js`(custody-web-v1, import 검증 §3, `prfAvailable()` 3값), `web/public/platform-web.js`(계약 17개 + `CONTRACT`, 한국어 에러 + `error.code`), `tests/smoke.node.cjs`(74개), `tests/platform.node.mjs`(74개).
+- `scripts/test.sh`는 2·3단계를 켰고 import 화이트리스트 검사를 더했다. `scripts/build-web.sh`는 wasm-opt 전후 크기를 출력한다. `tests/package.json`은 fake-indexeddb를 6.2.7로 고정했고 `tests/package-lock.json`을 추가했다.
+- 메모리 스캔 중 찾은 것: stack에 K_d 꼬리 20 B가, heap에 Argon2id 출력 S 사본이 남아 있었다. 그래서 바인딩에 zero-on-free global allocator(wasm32 전용)와 비밀 호출 뒤 stack 512 KiB scrub을 넣었다. 그 뒤 K, seed, K_d, K_blob, S는 32 B와 모든 16 B window가 0건이다. core, Cargo.lock, 의존성은 바뀌지 않았다.
+- 검증(실제 실행): 수락 기준 1~10, `cargo test --workspace`, clippy(host + wasm32) `-D warnings`, `./scripts/build-web.sh`, getrandom 0, `cargo deny check`, `node --check`, `./scripts/test.sh` ALL CHECKS PASSED.
+- 기준 9: wasm은 opt 후 782,432 B로 목표 600 KB를 넘는다. 기준 10: 5만 행 protect n=64가 437~508 ms, check가 400~409 ms로 예산 안이다.
+- QUESTION은 없다. 상세: `/Users/mac/dev/derator/Fable_5_1/tasks/reports/WP-06.md`.
+
+WP-06 2차: 머리 답변(1차)대로 고쳤다.
+- 에러 코드를 개정 계약 12개로 맞췄다. BadEvidence/BadSignature/BadBlob/BadAnchor → BAD_EVIDENCE, BadDisclosure → BAD_DISCLOSURE, KEY_EXISTS, PRF_UNSUPPORTED, CANCELLED를 추가했고 모든 계약 에러가 code를 가진다.
+- `keyInfo().persisted`를 추가했다. persist() 결과는 record 밖(메모리)에 두고, 없으면 `persisted()`, 그것도 없으면 `"unknown"`이다.
+- test.sh 3단계는 `target/web-test/`(JS 복사본 + pkg)에서 돈다. `web/public/pkg`는 build-web.sh 산출물로만 남는다.
+- platform 테스트는 84개다. 검증(실제 실행): test.sh ALL CHECKS PASSED, `web/public/pkg` sha가 test.sh 전후 같음, getrandom 0, clippy host/wasm32 0. core·vector·Cargo.lock은 바뀌지 않았다.
