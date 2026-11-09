@@ -8,7 +8,10 @@
 //! without `--i-know-this-is-for-testing`. K, K_d and seed buffers are wiped
 //! after use and never printed.
 //!
-//! Exit codes: 0 done, 2 input error or refused, 3 not implemented (`anchor`).
+//! `anchor` POSTs a TimeStampReq to the given TSA with the system `curl`
+//! (no network crate) and writes `<stem>.anchored.json`; the input is unchanged.
+//!
+//! Exit codes: 0 done, 2 input/network error or refused, 3 not implemented (`anchor --ots`).
 
 use std::fs;
 use std::io::Write;
@@ -17,10 +20,13 @@ use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use base64::engine::general_purpose::STANDARD as B64;
+use base64::Engine;
+use noreacore::anchor::{attach_anchor, tsa_parse_response, tsa_request_der};
 use noreacore::canary::MarkOptions;
 use noreacore::check::check;
 use noreacore::disclose::{disclose, SuspectMeta};
-use noreacore::evidence::{build_evidence, derive_dataset_key, Evidence};
+use noreacore::evidence::{build_evidence, derive_dataset_key, Anchor, Evidence};
 use noreacore::shape::inspect;
 use noreacore::sign::SoftwareSigner;
 use noreacore::table::{detect_format, Format};
@@ -116,7 +122,7 @@ enum Cmd {
         #[arg(long, value_name = "disclosure.json")]
         out: PathBuf,
     },
-    /// Attach a time anchor (network). Not implemented until WP-08.
+    /// Attach an RFC 3161 time anchor from a TSA (network, via curl). Writes <stem>.anchored.json.
     Anchor {
         evidence: PathBuf,
         #[arg(long, value_name = "URL")]
@@ -221,7 +227,7 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
         Err(Fail::NotImplemented) => {
-            eprintln!("norea: anchor is not implemented yet (WP-08). No network request was made.");
+            eprintln!("norea: anchor --ots is not implemented yet. No network request was made.");
             ExitCode::from(3)
         }
     }
@@ -338,8 +344,84 @@ fn run(cmd: Cmd) -> Result<(), Fail> {
             println!("wrote {}", out.display());
             Ok(())
         }
-        Cmd::Anchor { .. } => Err(Fail::NotImplemented),
+        Cmd::Anchor { ots: true, .. } => Err(Fail::NotImplemented),
+        Cmd::Anchor { evidence, tsa, ots: false } => cmd_anchor(&evidence, &tsa),
     }
+}
+
+/// 8 random bytes for the TSA nonce, or None if /dev/urandom is unavailable.
+fn nonce8() -> Option<[u8; 8]> {
+    use std::io::Read;
+    let mut n = [0u8; 8];
+    fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut n)).ok().map(|_| n)
+}
+
+/// Removes the temporary request/response files on drop.
+struct TempFiles(Vec<PathBuf>);
+
+impl Drop for TempFiles {
+    fn drop(&mut self) {
+        for p in &self.0 {
+            let _ = fs::remove_file(p);
+        }
+    }
+}
+
+fn cmd_anchor(evidence: &Path, tsa: &str) -> Result<(), Fail> {
+    if !(tsa.starts_with("https://") || tsa.starts_with("http://")) {
+        return Err(input("--tsa must be an http:// or https:// URL"));
+    }
+    let mut ev = read_evidence(evidence)?;
+    let stem = evidence.file_stem().and_then(|s| s.to_str()).unwrap_or("evidence");
+    let out = evidence.with_file_name(format!("{stem}.anchored.json"));
+    if out.exists() {
+        return Err(input(format!("{} already exists; not overwriting", out.display())));
+    }
+    let subject = ev.anchor_subject().map_err(core_err)?;
+    let nonce = nonce8();
+    let req = tsa_request_der(&subject, nonce.as_ref().map(|n| &n[..]));
+
+    let tag = format!(
+        "norea-anchor-{}-{}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
+    );
+    let dir = std::env::temp_dir();
+    let tmp = TempFiles(vec![dir.join(format!("{tag}.tsq")), dir.join(format!("{tag}.tsr"))]);
+    let (req_path, resp_path) = (&tmp.0[0], &tmp.0[1]);
+    write_new(req_path, &req)?;
+    let status = std::process::Command::new("curl")
+        .args(["-sS", "-f", "-m", "30", "-H", "Content-Type: application/timestamp-query", "--data-binary"])
+        .arg(format!("@{}", req_path.display()))
+        .arg("-o")
+        .arg(resp_path)
+        .arg(tsa)
+        .status();
+    match status {
+        Err(_) => {
+            return Err(input(
+                "curl was not found. norea anchor uses the system curl for the TSA request; install curl and retry.",
+            ))
+        }
+        Ok(s) if !s.success() => return Err(input(format!("TSA request to {tsa} failed (curl exit {:?})", s.code()))),
+        Ok(_) => {}
+    }
+    let resp = read(resp_path, "TSA response")?;
+    let tok = tsa_parse_response(&resp).map_err(core_err)?;
+    if tok.imprint != subject {
+        return Err(input("TSA token imprint does not match this evidence's anchor_subject; not attached"));
+    }
+    let mut obj = serde_json::Map::new();
+    obj.insert("token_b64".into(), serde_json::Value::String(B64.encode(&tok.token_der)));
+    obj.insert("tsa_url".into(), serde_json::Value::String(tsa.to_string()));
+    obj.insert("fetched_claim".into(), serde_json::Value::String(now_claim()));
+    attach_anchor(&mut ev, Anchor { kind: "rfc3161".into(), rest: obj });
+    let json = serde_json::to_string_pretty(&ev).map_err(|_| input("internal: evidence does not serialize"))?;
+    write_new(&out, format!("{json}\n").as_bytes())?;
+    println!("wrote {}", out.display());
+    println!("anchor {} (rfc3161): genTime {} from {tsa}", ev.anchors.len() - 1, tok.gen_time_rfc3339);
+    println!("TSA 인증서 체인은 검증하지 않았다 / TSA certificate chain not verified.");
+    Ok(())
 }
 
 #[cfg(test)]

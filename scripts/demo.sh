@@ -16,10 +16,9 @@ START=$(date +%s)
 
 step() { printf '\n=== %s ===\n' "$*"; }
 
-if [ ! -x "$NOREA" ] || [ ! -x "$VERIFY" ]; then
-  step "release CLI 빌드 / building release CLI"
-  cargo build --release -p norea-cli || exit 1
-fi
+# Always (no-op when up to date): a stale release binary would show old behavior.
+step "release CLI 빌드 / building release CLI"
+cargo build --release -p norea-cli || exit 1
 
 step "1. 데모 데이터 / demo data"
 SRC=""
@@ -56,6 +55,18 @@ t1=$(node -e 'console.log(Date.now())')
 echo "protect: $((t1 - t0)) ms (native, process 포함 / including process start)"
 echo "입력 파일은 수정하지 않는다 / input untouched: $(shasum -a 256 "$SRC" | cut -c1-16) == $(shasum -a 256 "$D/input.csv" | cut -c1-16)"
 
+step "4b. norea anchor (RFC 3161 TSA, freetsa.org)"
+EV="$D/input.evidence.json"
+ANCHORED=0
+echo "\$ norea anchor input.evidence.json --tsa https://freetsa.org/tsr"
+if "$NOREA" anchor "$EV" --tsa https://freetsa.org/tsr; then
+  EV="$D/input.evidence.anchored.json"
+  ANCHORED=1
+  echo "이후 단계는 anchored evidence를 쓴다 / using $(basename "$EV") from here on"
+else
+  echo "anchor 생략(네트워크 없음). 이 evidence는 시점을 증명하지 않는다 / anchor skipped (no network): this evidence does not prove when it was created."
+fi
+
 step "5. 크롤러 사본 생성 / simulated crawler copies"
 node "$ROOT/scripts/demo-crawler.mjs" "$D/input.marked.csv" "$D/input.csv" "$D" || exit 1
 echo "copy-html.html     HTML <table>, 열 이름 변경, &amp;, 줄바꿈/공백 삽입 / renamed columns, entities, whitespace"
@@ -66,7 +77,7 @@ echo "unrelated.csv      원본(canary 없음)의 부산광역시 행만 / unmar
 step "6. norea check (각 사본 / each copy)"
 for f in copy-html.html copy-api.json copy-shuffled.csv unrelated.csv; do
   t0=$(node -e 'console.log(Date.now())')
-  "$NOREA" check --key-file "$D/k.bin" $T "$D/$f" "$D/input.evidence.json" > "$D/check-$f.json" 2>"$D/check-$f.err"
+  "$NOREA" check --key-file "$D/k.bin" $T "$D/$f" "$EV" > "$D/check-$f.json" 2>"$D/check-$f.err"
   rc=$?
   t1=$(node -e 'console.log(Date.now())')
   node -e '
@@ -82,7 +93,7 @@ NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   --source-claim https://example-crawler.test/data \
   --captured-claim "$NOW" \
   --capture-method-claim "browser save-as" \
-  --out "$D/disclosure.json" "$D/input.evidence.json" "$D/copy-html.html" || exit 1
+  --out "$D/disclosure.json" "$EV" "$D/copy-html.html" || exit 1
 echo "disclosure.json: $(wc -c < "$D/disclosure.json" | tr -d ' ') B"
 
 step "8. 키 없이 검증 / verify without any key: norea-verify disclosure"
@@ -101,9 +112,13 @@ echo "\$ norea-verify disclosure disclosure.json copy-html.tampered.html"
 echo "--> exit code $? (1 expected / FAIL 기대)"
 
 step "이 데모가 증명하지 않는 것 / what this demo does NOT prove"
-echo "1. 시점 anchor가 없다. created_claim은 로컬 시계의 주장일 뿐이다 / no time anchor: created_claim is a local-clock claim."
+if [ "$ANCHORED" = 1 ]; then
+  echo "1. TSA genTime과 imprint는 검증했지만 TSA 인증서 체인은 norea-verify가 검증하지 않는다(--export-anchors 후 openssl ts -verify로 수동 확인) / TSA cert chain: manual check."
+else
+  echo "1. 시점 anchor가 없다(네트워크 없음으로 생략). created_claim은 로컬 시계의 주장일 뿐이다 / no time anchor: created_claim is a local-clock claim."
+fi
 echo "2. 사본의 출처와 포착 시점(source/captured/method)은 운영자 주장이고 검증되지 않는다 / capture source and time are operator claims."
-echo "3. anchor가 붙어도 TSA 인증서 체인은 norea-verify가 검증하지 않는다(openssl로 수동) / TSA cert chain is not verified."
+echo "3. 확률 상한은 생성기 모델 기준이지 실제 세계 확률이 아니다 / the probability bound is a generator-model bound."
 
 END=$(date +%s)
 printf '\n총 소요 / total: %ss. 출력 / output: %s\n' "$((END - START))" "$D"

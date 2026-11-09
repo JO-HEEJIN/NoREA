@@ -4,7 +4,7 @@
 //! (CONTEXT.md invariant 2). Public API: Fable_5_1/docs/CORE-API.md.
 //! Implemented: error, table (WP-01); norm, shape, canary (WP-02);
 //! merkle, blob, sign, evidence (WP-03, vector tests/vectors/norea-evidence-v1.json);
-//! check, disclose (WP-04). `anchor` is empty until WP-08.
+//! check, disclose (WP-04); anchor (WP-08, RFC 3161 only).
 
 pub mod anchor;
 pub mod blob;

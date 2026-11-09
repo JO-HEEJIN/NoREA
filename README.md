@@ -27,9 +27,9 @@ NoREA는 운영자가 자기 소유의 공개 데이터에 가상 레코드(cana
 - 공개된 canary가 그 사본에서 실제로 재현되는지
 
 검증되지 않는다:
-- 시점. 외부 시점 anchor(RFC 3161 TSA, OpenTimestamps)는 아직 구현 전이다(`norea anchor`는 미구현). `created_claim`은 운영자 기기 시계의 주장일 뿐이고, 현재 evidence는 "언제 심었는가"를 증명하지 않는다. verifier도 그렇게 출력한다.
+- 시점(anchor가 없을 때). RFC 3161 TSA anchor는 CLI `norea anchor <evidence.json> --tsa URL`로 붙이고, verifier가 토큰의 imprint(= 서명된 증거의 anchor_subject)와 genTime을 검증한다. 다른 증거의 anchor가 붙어 있으면 FAIL(종료 1)이다. anchor가 없는 evidence는 "언제 심었는가"를 증명하지 않고, `created_claim`은 운영자 기기 시계의 주장일 뿐이다. verifier도 그렇게 출력한다. OpenTimestamps, 웹 앱의 anchor 버튼, relay는 아직 없다.
 - 사본의 출처, 포착 시점, 포착 방법(`*_claim` 필드). 운영자 주장이다.
-- TSA 인증서 체인. anchor가 붙더라도 norea-verify는 체인을 검증하지 않는다(`--export-anchors` 후 openssl로 수동 확인).
+- TSA 인증서 체인과 CMS 서명. norea-verify는 imprint와 genTime만 읽고 체인은 검증하지 않는다(`--export-anchors` 후 `openssl ts -verify`로 수동 확인).
 - 확률 상한은 생성기 모델 기준이지 실제 세계 확률이 아니다. 근거인 shape 정보는 운영자가 disclosure에 넣은 것이다.
 
 ## 빠른 실행
@@ -41,6 +41,7 @@ NoREA는 운영자가 자기 소유의 공개 데이터에 가상 레코드(cana
 ./scripts/demo.sh                          # 심사위원용 데모. 출력과 로그는 target/demo/ (demo.log)
 ./scripts/build-web.sh                     # web/public/pkg 빌드
 python3 -m http.server 8080 -d web/public  # http://localhost:8080
+./target/release/norea anchor out/x.evidence.json --tsa https://freetsa.org/tsr  # RFC 3161 anchor 추가 -> out/x.anchored.json (네트워크, curl 필요)
 ```
 
 `demo.sh`는 국토교통부 법정동코드 공개 CSV(20,561행)를 쓴다. 저장소의 `demo/data/legal-dong-code.csv`(국토교통부 법정동코드 전체자료, 공공데이터포털 data.go.kr 제공, 공공누리 출처표시 조건으로 재배포)를 쓴다. `/dev/urandom`으로 만든 데모용 테스트 키로 protect한 뒤, 크롤러 사본 3종(HTML 표, JSON API 응답, 행 섞은 CSV)과 무관한 데이터 1종을 check하고, HTML 사본으로 disclosure를 만들어 `norea-verify`로 검증한다. 마지막으로 1바이트 변조본이 FAIL 나는 것을 보인다. 2026-11-09 실행 결과(Apple M4, 전체 약 3~5 s):
@@ -89,7 +90,7 @@ Frozen 포맷: `norea.evidence.v1`(signing payload 바이트, `SIG_CTX = "norea/
 - 필드 간 상관(예: 법정동코드와 시도명)은 학습하지 않는다. 날짜 같은 의미 제약도 모른다(`2003-02-31`이 나올 수 있다). 상관을 아는 분석자에게는 canary가 드러날 수 있다.
 - dense key: 연번 `1..N`처럼 빈 값 공간이 없는 unique 필드에는 canary를 만들 수 없다. inspect가 경고하고 그 필드를 뺀 발행본을 권한다.
 - EAV: 한 행의 값을 서로 다른 배열에 나눠 넣은 변환은 구조 경로로 못 잡는다.
-- 시점 anchor가 아직 없고, 붙더라도 TSA 체인 검증은 수동이다.
+- 시점 anchor는 RFC 3161 TSA를 CLI로만 붙일 수 있다(OTS, 웹 anchor 버튼, relay 없음). TSA 체인 검증은 수동(openssl)이다.
 - WebAuthn PRF 경로와 Safari/Firefox 동작은 아직 실제 브라우저에서 검증하지 않았다(headless Chrome에서 passphrase 경로만 확인).
 
 ## 설계 문서

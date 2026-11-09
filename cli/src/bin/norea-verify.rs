@@ -6,7 +6,8 @@
 //! the PASS/FAIL lines below only read fields of the core result.
 //!
 //! Exit codes: 0 all checks PASS, 1 a check FAILs, 2 input or structure error.
-//! Anchors are reported but are not part of the exit code until WP-08.
+//! Anchors: an anchor that was checked (no `error`) with a wrong imprint is a FAIL
+//! (`anchors_consistent`, disclosure-v1 §4); anchors with an `error` are N/A.
 
 use std::fs;
 use std::io::Write;
@@ -17,7 +18,7 @@ use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use clap::{Parser, Subcommand};
 use noreacore::disclose::verify_disclosure;
-use noreacore::evidence::{verify_evidence, AnchorCheck, Evidence};
+use noreacore::evidence::{anchors_consistent, verify_evidence, AnchorCheck, Evidence};
 use serde_json::Value;
 
 #[derive(Parser)]
@@ -96,7 +97,7 @@ fn main() -> ExitCode {
     }
 }
 
-/// Anchor lines. Until WP-08 core reports every anchor with an `error`; shown as N/A.
+/// Anchor lines. `error` -> N/A; otherwise PASS/FAIL on `imprint_ok` (rfc3161, WP-08).
 fn anchor_lines(anchors: &[AnchorCheck], s: &mut String) {
     if anchors.is_empty() {
         s.push_str("[N/A ] 시점 anchor / Time anchor: 없음 / none\n");
@@ -121,7 +122,7 @@ fn cmd_evidence(path: &Path, json: bool) -> Result<u8, InputError> {
         InputError(format!("evidence is not a norea.evidence.v1 JSON object (line {}, column {})", e.line(), e.column()))
     })?;
     let v = verify_evidence(&ev);
-    let ok = v.signature_ok && v.evidence_id_ok && v.blob_hash_ok;
+    let ok = v.signature_ok && v.evidence_id_ok && v.blob_hash_ok && anchors_consistent(&v);
     if json {
         let j = serde_json::to_string(&v).map_err(|_| InputError("internal: verification does not serialize".to_string()))?;
         out(&j);
@@ -195,7 +196,7 @@ fn human_disclosure(r: &Value, code: u8) -> String {
     s.push_str(&format!("[{}] evidence_id = SHA-256(payload)\n", pass(get_bool(e, &["evidence_id_ok"]))));
     s.push_str(&format!("[{}] canary blob 해시 / Canary blob hash\n", pass(get_bool(e, &["blob_hash_ok"]))));
     let anchors: Vec<AnchorCheck> = serde_json::from_value(e["anchors"].clone()).unwrap_or_default();
-    s.push_str("\n== 2. 시점 anchor / Time anchors (종료 코드에 넣지 않음 / not in exit code) ==\n");
+    s.push_str("\n== 2. 시점 anchor / Time anchors (검증된 anchor의 imprint 불일치는 FAIL / a checked anchor with a wrong imprint FAILs) ==\n");
     anchor_lines(&anchors, &mut s);
 
     let n = get_u64(r, &["summary", "disclosed"]);

@@ -449,18 +449,59 @@ fn key_file_needs_testing_flag() {
     assert!(!out_dir.exists() && !out.exists(), "nothing written");
 }
 
-/// anchor is not implemented until WP-08: exit 3, no network.
+/// anchor (WP-08): a TSA that cannot be reached is exit 2 and writes nothing;
+/// a non-http URL is refused before any request; --ots is not implemented (exit 3).
 #[test]
-fn anchor_not_implemented() {
+fn anchor_failures_write_nothing() {
     let f = fixture();
+    let out = f.evidence.with_file_name(format!(
+        "{}.anchored.json",
+        f.evidence.file_stem().unwrap().to_str().unwrap()
+    ));
     let o = run(NOREA, &["anchor", p(&f.evidence), "--tsa", "https://tsa.invalid"]);
+    println!("unreachable TSA exit {}\n{}", o.code, o.stderr);
+    assert_eq!(o.code, 2);
+    let o = run(NOREA, &["anchor", p(&f.evidence), "--tsa", "file:///etc/passwd"]);
+    assert_eq!(o.code, 2);
+    assert!(o.stderr.contains("http"));
+    assert!(!out.exists(), "nothing written");
+    let o = run(NOREA, &["anchor", p(&f.evidence), "--tsa", "https://tsa.invalid", "--ots"]);
     assert_eq!(o.code, 3);
     assert!(o.stderr.contains("not implemented"));
 }
 
+/// WP-08: an evidence carrying a real TSA token for a different subject (fixture,
+/// no network) parses (no `error`) but its imprint does not match -> exit 1.
+#[test]
+fn evidence_with_foreign_anchor_fails() {
+    let f = fixture();
+    let dir = fresh_dir("foreign-anchor");
+    let resp = fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../core/tests/fixtures/tsa-response-freetsa.der")).unwrap();
+    let tok = noreacore::anchor::tsa_parse_response(&resp).unwrap();
+    let mut ev = json_of(&f.evidence);
+    ev["anchors"] = json!([{
+        "kind": "rfc3161", "token_b64": B64.encode(&tok.token_der),
+        "tsa_url": "https://freetsa.org/tsr", "fetched_claim": "2026-11-09T04:14:30Z"
+    }]);
+    let path = dir.join("foreign-anchor.evidence.json");
+    fs::write(&path, ev.to_string()).unwrap();
+    let o = run(VERIFY, &["evidence", p(&path)]);
+    println!("{}", o.stdout);
+    assert_eq!(o.code, 1);
+    assert!(o.stdout.contains("[PASS] 서명"));
+    assert!(o.stdout.contains("[FAIL] anchor 0 (rfc3161): imprint, genTime 2026-11-09T04:14:30Z"));
+    let o = run(VERIFY, &["evidence", "--json", p(&path)]);
+    assert_eq!(o.code, 1);
+    let v: Value = serde_json::from_str(&o.stdout).unwrap();
+    assert_eq!(v["anchors"][0]["imprint_ok"], json!(false));
+    assert_eq!(v["anchors"][0]["error"], Value::Null);
+    // The unanchored evidence still passes.
+    assert_eq!(run(VERIFY, &["evidence", p(&f.evidence)]).code, 0);
+}
+
 /// --export-anchors: a hand-added rfc3161 anchor (anchors are outside the
-/// signature) is exported as DER, with subject.bin and README.txt. Anchors stay N/A
-/// and do not change the exit code.
+/// signature) is exported as DER, with subject.bin and README.txt. A token that does
+/// not parse stays N/A and does not change the exit code.
 #[test]
 fn export_anchors() {
     let f = fixture();
@@ -481,7 +522,8 @@ fn export_anchors() {
     println!("--- with anchor ---\n{}", o.stdout);
     assert_eq!(o.code, 0, "anchor N/A does not fail: {}", o.stderr);
     assert!(o.stdout.contains("[N/A ] anchor 0 (rfc3161)"));
-    assert!(o.stdout.contains("anchor verification not implemented"));
+    // WP-08: an unparsable rfc3161 token is an `error` (N/A), not a FAIL.
+    assert!(o.stdout.contains("token does not parse"));
     assert_eq!(fs::read(export.join("anchor-0.tsr")).unwrap(), token);
     assert_eq!(fs::read(export.join("subject.bin")).unwrap(), subject.to_vec());
     let readme = fs::read_to_string(export.join("README.txt")).unwrap();

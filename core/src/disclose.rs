@@ -14,7 +14,7 @@ use serde_json::{json, Map, Value};
 use crate::check::{committed_rows, detect_suspect_kind, match_rows, match_rows_counted};
 use crate::error::{Error, ErrorCode};
 use crate::evidence::{
-    check_created_claim, decode_hex32, hex, sha256_hex, verify_evidence, Evidence, EvidenceVerification,
+    anchors_consistent, check_created_claim, decode_hex32, hex, sha256_hex, verify_evidence, Evidence, EvidenceVerification,
     CANARY_KIND_RECORD_SHAPE_V1,
 };
 use crate::merkle::{audit_path, leaf_hash, verify_audit_path};
@@ -233,7 +233,7 @@ struct Facts<'a> {
 fn statement(f: &Facts) -> String {
     let Facts { ver, ev, suspect_hash_ok, n, merkle_ok, matched, not_reproduced, bound, records } = *f;
     let mut s: Vec<String> = Vec::new();
-    let integrity = evidence_ok(ver) && suspect_hash_ok && merkle_ok == n && n > 0;
+    let integrity = evidence_ok(ver) && suspect_hash_ok && merkle_ok == n && n > 0 && anchors_consistent(ver);
     if integrity {
         s.push("무결성: PASS".into());
     } else {
@@ -249,6 +249,9 @@ fn statement(f: &Facts) -> String {
         }
         if n == 0 {
             why.push("공개된 canary 없음");
+        }
+        if !anchors_consistent(ver) {
+            why.push("anchor imprint가 이 증거와 불일치");
         }
         s.push(format!("무결성: FAIL ({}). 이 disclosure는 그대로 증거로 쓸 수 없다.", why.join(", ")));
     }
@@ -268,6 +271,10 @@ fn statement(f: &Facts) -> String {
                     "시점: TSA 토큰의 genTime은 {t}이며 imprint가 서명된 증거와 일치한다. TSA 인증서 체인은 이 도구가 검증하지 않았다(disclosure-v1 §5)."
                 ));
             }
+            (Some(_), false) if a.error.is_none() => s.push(format!(
+                "시점: anchor {k}({})의 imprint가 이 증거의 anchor_subject와 일치하지 않는다. 다른 증거의 anchor다.",
+                a.kind
+            )),
             _ => s.push(format!("시점: anchor {k}({})를 검증하지 못했다.", a.kind)),
         }
     }
@@ -348,7 +355,7 @@ pub fn verify_disclosure(disclosure_json: &str, suspect: &[u8]) -> Result<String
         bound: weakest_sum_x100(shape, &ev.marker_fields),
         records,
     });
-    let integrity_ok = evidence_ok(&ver) && suspect_hash_ok && n >= 1 && merkle_ok == n;
+    let integrity_ok = evidence_ok(&ver) && suspect_hash_ok && n >= 1 && merkle_ok == n && anchors_consistent(&ver);
     let report = json!({
         "schema": DISCLOSURE_REPORT_SCHEMA,
         "evidence": {

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
+use crate::anchor::tsa_parse_token;
 use crate::blob::seal_blob;
 use crate::canary::{mark, MarkOptions};
 use crate::error::{Error, ErrorCode};
@@ -342,9 +343,42 @@ pub struct EvidenceVerification {
     pub has_anchors: bool,
 }
 
+/// §10 step 5 for one anchor. rfc3161: parse the stored TimeStampToken and
+/// compare its imprint with `anchor_subject`. The CMS signature and TSA chain
+/// are not verified (`chain_verified` is always false). Other kinds: not implemented.
+fn check_anchor(ev: &Evidence, a: &Anchor) -> AnchorCheck {
+    let mut c = AnchorCheck { kind: a.kind.clone(), imprint_ok: false, gen_time: None, chain_verified: false, error: None };
+    if a.kind != "rfc3161" {
+        c.error = Some("anchor verification not implemented".to_string());
+        return c;
+    }
+    let token = match a.rest.get("token_b64").and_then(Value::as_str).map(|t| B64.decode(t)) {
+        Some(Ok(t)) => t,
+        _ => {
+            c.error = Some("token_b64 is missing or not base64".to_string());
+            return c;
+        }
+    };
+    match tsa_parse_token(&token) {
+        Ok(t) => {
+            c.imprint_ok = ev.anchor_subject().map(|s| s == t.imprint).unwrap_or(false);
+            c.gen_time = Some(t.gen_time_rfc3339);
+        }
+        Err(e) => c.error = Some(format!("token does not parse: {}", e.message)),
+    }
+    c
+}
+
+/// disclosure-v1 §4: every anchor that was actually checked (no `error`) has `imprint_ok`.
+/// Anchors with an `error` (not implemented, token unparsable) are N/A and not counted.
+/// Used by `verify_disclosure` (`integrity_ok`) and by the verifier CLI exit codes.
+pub fn anchors_consistent(v: &EvidenceVerification) -> bool {
+    v.anchors.iter().all(|a| a.error.is_some() || a.imprint_ok)
+}
+
 /// §10, no secrets. `signature_ok` is true only if the payload fields also
 /// pass `validate_fields` (§10 step 1 has no field of its own in the result).
-/// Anchor imprints are not checked until WP-08 and are reported as such.
+/// rfc3161 anchor imprints are checked (WP-08); other kinds report an `error`.
 pub fn verify_evidence(ev: &Evidence) -> EvidenceVerification {
     let fields_ok = ev.validate_fields().is_ok();
     let payload = ev.signing_payload();
@@ -361,13 +395,7 @@ pub fn verify_evidence(ev: &Evidence) -> EvidenceVerification {
     let anchors: Vec<AnchorCheck> = ev
         .anchors
         .iter()
-        .map(|a| AnchorCheck {
-            kind: a.kind.clone(),
-            imprint_ok: false,
-            gen_time: None,
-            chain_verified: false,
-            error: Some("anchor verification not implemented".to_string()),
-        })
+        .map(|a| check_anchor(ev, a))
         .collect();
     EvidenceVerification { signature_ok, evidence_id_ok, blob_hash_ok, has_anchors: !anchors.is_empty(), anchors }
 }
@@ -517,11 +545,20 @@ mod tests {
         assert!(!verify_evidence(&e).blob_hash_ok);
 
         let mut e = ev.clone();
+        e.anchors.push(Anchor { kind: "ots".into(), rest: Map::new() });
         e.anchors.push(Anchor { kind: "rfc3161".into(), rest: Map::new() });
+        // A real token for a different subject (SHA-256("x")): parses, imprint does not match.
+        let tok = crate::anchor::tsa_parse_response(include_bytes!("../tests/fixtures/tsa-response-freetsa.der")).unwrap();
+        let mut rest = Map::new();
+        rest.insert("token_b64".into(), Value::String(B64.encode(&tok.token_der)));
+        e.anchors.push(Anchor { kind: "rfc3161".into(), rest });
         let v = verify_evidence(&e);
         assert!(v.signature_ok && v.has_anchors);
         assert_eq!(v.anchors[0].error.as_deref(), Some("anchor verification not implemented"));
-        assert!(!v.anchors[0].imprint_ok && !v.anchors[0].chain_verified);
+        assert_eq!(v.anchors[1].error.as_deref(), Some("token_b64 is missing or not base64"));
+        assert_eq!(v.anchors[2].error, None);
+        assert_eq!(v.anchors[2].gen_time.as_deref(), Some("2026-11-09T04:14:30Z"));
+        assert!(v.anchors.iter().all(|a| !a.imprint_ok && !a.chain_verified));
 
         // Blob opens with K_d and matches the root.
         let marked_raw = decode_hex32(&ev.marked_sha256).unwrap();
