@@ -2,7 +2,8 @@
 //!
 //! Pure logic only. No RNG, network, file I/O, key storage or clock
 //! (CONTEXT.md invariant 2). Public API: Fable_5_1/docs/CORE-API.md.
-//! Implemented: error, table (WP-01); norm, shape, canary (WP-02).
+//! Implemented: error, table (WP-01); norm, shape, canary (WP-02);
+//! merkle, blob, sign, evidence (WP-03, vector tests/vectors/norea-evidence-v1.json).
 //! Other modules are empty until their WP.
 
 pub mod anchor;

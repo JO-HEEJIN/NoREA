@@ -15,7 +15,9 @@ crate-type = ["rlib"]
 [dependencies]
 # FIPS 204 ML-DSA-65 signing/verification, pure Rust. Pinned: pre-1.0, unaudited.
 # default-features = false drops `getrandom` and `pkcs8`: core never generates randomness.
-ml-dsa = { version = "=0.1.2", default-features = false }
+# `zeroize` (WP-03): without it SigningKey/ExpandedSigningKey do NOT wipe on drop (their Drop
+# impls are cfg(feature = "zeroize")). SoftwareSigner relies on it for ZeroizeOnDrop.
+ml-dsa = { version = "=0.1.2", default-features = false, features = ["zeroize"] }
 
 # Derive (de)serialization for evidence/disclosure structs.
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
@@ -26,10 +28,13 @@ serde = { version = "1.0.229", default-features = false, features = ["std", "der
 serde_json = { version = "1.0.154", default-features = false, features = ["std", "arbitrary_precision", "preserve_order"] }
 
 # SHA-256: Merkle leaves, evidence_id, anchor subject, marked file hash.
-sha2 = { version = "=0.11.1", default-features = false }
+# `zeroize` (WP-03): Sha256VarCore wipes its chaining state on drop. HMAC/HKDF keyed by K_d or
+# K_blob keep their ipad/opad state inside Sha256VarCore, so this is what wipes it.
+sha2 = { version = "=0.11.1", default-features = false, features = ["zeroize"] }
 
 # HMAC-SHA256: deterministic canary draws from K_d (shape-v1 §5.1).
-hmac = { version = "=0.13.0", default-features = false }
+# `zeroize` (WP-03): forwards to digest/zeroize (block buffers wipe on drop).
+hmac = { version = "=0.13.0", default-features = false, features = ["zeroize"] }
 
 # HKDF-SHA256: K -> K_d -> K_blob key derivation (evidence-v1 §2).
 hkdf = { version = "=0.13.0", default-features = false }
@@ -39,7 +44,8 @@ base64 = { version = "0.23.1", default-features = false, features = ["alloc"] }
 
 # Encrypted canary blob inside evidence (blob AEAD). Nonce comes from the caller/derivation,
 # never from an RNG: default-features = false drops `getrandom`.
-chacha20poly1305 = { version = "=0.11.0", default-features = false, features = ["alloc"] }
+# `zeroize` (WP-03): the cipher wipes K_blob on drop.
+chacha20poly1305 = { version = "=0.11.0", default-features = false, features = ["alloc", "zeroize"] }
 
 # Wipe K, seed, K_d, K_blob after use (ADR-0012).
 zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }

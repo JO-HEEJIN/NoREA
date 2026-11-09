@@ -8,7 +8,7 @@ NoREA는 운영자가 자기 소유의 공개 데이터에 canary를 심고, ML-
 
 ## 지금 동작하는 것
 
-Phase 1 구현 중. 로직이 있는 모듈은 `error`, `table`(WP-01), `norm`, `shape`, `canary`(WP-02)이다. 나머지 모듈(merkle, blob, sign, evidence, check, disclose, anchor)은 문서 주석만 있는 빈 파일이다. crate root에 `Key32 = [u8; 32]`가 있다.
+Phase 1 구현 중. 로직이 있는 모듈은 `error`, `table`(WP-01), `norm`, `shape`, `canary`(WP-02), `merkle`, `blob`, `sign`, `evidence`(WP-03)이다. 나머지 모듈(check, disclose, anchor)은 문서 주석만 있는 빈 파일이다. 동결 vector `tests/vectors/norea-evidence-v1.json`이 생성되어 있고 `core/tests/vectors.rs`가 대조한다. `norea.evidence.v1`과 `record.shape.v1`은 2026-11-09 머리 수락으로 Frozen이다. crate root에 `Key32 = [u8; 32]`가 있다.
 
 - 뼈대(WP-00): workspace `core`(noreacore), `web`(norea-web), `cli`(norea-cli). web/src는 export가 없다. CLI 두 바이너리(norea-verify, norea)는 `--help`만 하고 다른 호출은 exit 2.
 - `web/public/`의 JS/HTML은 이전 제품에서 이름만 바꿔 복사한 것이라 아직 새 API와 맞지 않는다(WP-06/07이 재작성). `tests/smoke.node.cjs`, `tests/platform.node.mjs`도 같다. 그래서 `scripts/test.sh`에서 2단계 node e2e와 3단계 플랫폼 계약은 꺼져 있다.
@@ -68,6 +68,30 @@ shape-v1 **r2.2** 구현. `Kind`, `FieldShape`, `Shape`, `infer_shape`, `auto_ma
 - 삽입: `pos_i = draw(K_d,"pos",i,0,0) mod (L+i+1)`를 순서대로 적용해 최종 위치를 계산하고 `serialize_with_inserts` 한 번으로 출력한다. CSV canary 셀은 모두 Str(결측은 `""`).
 - 성능: 5만 행 JSON(7.25 MB) `mark(n=64)` release 약 0.15 s(Apple M4).
 
+### merkle (`core/src/merkle.rs`)
+evidence-v1 §7.2, RFC 9162 §2.1 구조. `leaf_hash(i, canon) = SHA-256(0x00 || u32be(i) || canon)`, `merkle_root`(k = n보다 작은 최대 2의 거듭제곱, node = `SHA-256(0x01 || L || R)`, 빈 입력은 panic), `audit_path`(RFC 9162 §2.1.3.1 PATH, leaf→root 순서, 범위 밖 index는 빈 path), `verify_audit_path`(§2.1.3.2를 단계 번호와 함께 주석에 인용). path는 count에 path 모양으로만 묶인다. 모양이 같은 다른 count도 통과한다(n=1..9, c=1..10에서 64개 경우). 그래서 verifier는 서명된 `canary_count`를 넘겨야 한다.
+
+### blob (`core/src/blob.rs`)
+evidence-v1 §7.3. `K_blob = HKDF-SHA256(salt "norea/canary-blob/v1", ikm K_d, info marked_sha256 raw)`(`pub fn derive_blob_key`, `Zeroizing<Key32>` 반환). plaintext는 `{"rows":[canon_row...],"shape":<shape_summary compact>}`, AAD는 `"norea.evidence.v1\n" + dataset_id + "\n" + hex(marked_sha256)`, nonce는 12 x 0x00, ChaCha20-Poly1305. `seal_blob`은 `ct || tag`를 돌려준다. `open_blob`은 인증 실패, JSON이 아님, rows/shape 없음을 모두 `BadBlob`으로 돌려준다. rows는 `row_from_json`으로 파싱하고, 다시 `canon_row`하면 원래 바이트와 같다(Opaque, 지수, 중첩 포함 테스트). plaintext 버퍼는 `Zeroizing`이다.
+
+### sign (`core/src/sign.rs`)
+`SIG_CTX = b"norea/evidence/v1"`(17 B). `SoftwareSigner::from_seed`(seed 복사본은 zeroize), `verifying_key_bytes`(1952 B), `sign`(ML-DSA-65 deterministic, context SIG_CTX, 3309 B, 실패는 `BadSignature`), `verify`(형식이 틀리면 false). `SoftwareSigner`는 `ZeroizeOnDrop`이다. ml-dsa의 `zeroize` feature가 켜져 있어서 `SigningKey`와 expanded key가 drop 시 지워진다.
+
+### evidence (`core/src/evidence.rs`)
+`EVIDENCE_SCHEMA`, `CANARY_KIND_RECORD_SHAPE_V1`, `derive_dataset_key`(HKDF salt "norea/v1", info dataset_id), `sha256_hex`, `Anchor { kind, #[serde(flatten)] rest }`, `Evidence`(§4 필드를 §4 순서로 직렬화, 모르는 키는 무시, `anchors` 기본값 `[]`), `Prepared`, `EvidenceVerification`, `AnchorCheck`.
+- `signing_payload`: §6의 11행을 `\n`으로 잇고 끝 줄바꿈은 없다. `marker_fields`는 §5.2 compact JSON(`"`와 `\`만 escape). `evidence_id` = hex(SHA-256(payload)). `anchor_subject` = SHA-256(payload || 0x0A || sig)이고 서명이 3309 B가 아니면 `BadEvidence`.
+- `validate_fields`(모두 `BadInput`): schema가 정확히 일치해야 한다. dataset_id, created_claim, 각 marker, canary_kind는 비어 있지 않고 제어문자(U+0000..001F, U+007F)가 없어야 한다. dataset_id는 256 B 이하, format은 json/csv, hex64 4개는 소문자 64자, canary_count는 1 이상, marker는 1~4개다. created_claim은 `YYYY-MM-DDTHH:MM:SSZ` 20자이고 월 01-12, 일 01-31, 시 00-23, 분 00-59, 초 00-60 범위를 검사한다.
+- `prepare_evidence`: dataset_id와 created_claim을 먼저 검사한다. 그다음 `mark`, 해시, Merkle root, `seal_blob`을 거쳐 서명 없는 Evidence를 만든다(vk/sig/evidence_id는 빈 문자열). `canary_kind = record.shape.v1`, `marker_fields = MarkOutput.markers`.
+- `finalize_evidence`: validate 후 `verify(vk, payload, sig)`가 참일 때만 vk_b64, sig_b64, evidence_id를 채운다. 아니면 `BadSignature`. `build_evidence` = prepare + `SoftwareSigner::sign` + finalize.
+- `verify_evidence`(비밀 없음): `signature_ok`는 validate_fields 통과와 서명 검증이 모두 참이어야 참이다. `evidence_id_ok`가 있다. `blob_hash_ok`는 blob이 비어 있지 않고 SHA-256이 일치해야 참이다. anchor마다 `imprint_ok: false, chain_verified: false, error: "anchor verification not implemented"`를 넣고(WP-08 전까지), `has_anchors`를 둔다.
+- 성능: 5만 행 JSON(6.0 MB) `build_evidence(n=64)` release 128~139 ms(Apple M4, rustc 1.99.1).
+
+### 동결 vector (`core/tests/vectors.rs`, `tests/vectors/norea-evidence-v1.json`)
+입력은 WP-03 스펙 "동결 vector 입력"이다(K = 0x11×32, seed = 0x22×32, dataset_id `vector/records/v1`, created_claim `2026-11-08T00:00:00Z`, n = 4, 6행 JSON 한 줄과 끝 LF 없음, CSV 7레코드 모두 LF). 케이스 json과 csv마다 `input_utf8, k_d_hex, k_blob_hex, markers, canaries, marked_utf8, canary_root, blob_hex, payload_utf8, evidence_id, anchor_subject_hex, vk_sha256, evidence`를 고정한다. 테스트는 K_d와 K_blob을 hkdf로 따로 계산해 대조하고, 고정된 evidence가 단독으로 검증되는지 확인한다(서명, id, blob 해시, 11행 payload, blob 복호화 rows == canaries, Merkle root). 자동 marker는 두 포맷 모두 `["addr","id","area_m2"]`. `SIG_CTX`를 1바이트 바꾸면 이 테스트가 실패한다(WP-03 2차에서 확인). 재생성은 `NOREA_WRITE_VECTORS=1 cargo test -p noreacore --test vectors`이고 포맷 변경 승인 후에만 한다.
+
+### zeroize 상태
+켠 feature는 `ml-dsa/zeroize`, `sha2/zeroize`(HMAC/HKDF의 ipad/opad 상태가 들어 있는 Sha256VarCore를 drop 시 지운다), `hmac/zeroize`(digest/zeroize, block buffer), `chacha20poly1305/zeroize`(cipher key)다. 남은 것: hmac 0.13 `new_from_slice`가 스택에 만드는 key^ipad/opad 블록은 지워지지 않는다(crate 내부, feature로 해결 안 됨). `derive_dataset_key`의 반환값은 호출자가 지운다.
+
 ### 한계 (측정됨, WP-02 보고서 4차)
 - 보호 NUMERIC은 값 사이의 빈 정수만 만든다(값 밀도는 따르지만 값 자체의 구조는 모른다). 코드성 정수의 자릿수 구조는 모른다(inspect `NUMERIC_CODE_LIKE`). 측정: 공개 CSV 법정동코드 n = 1000 KS 0.022~0.028(q95 0.044), A' log-uniform 면적 KS 0.024(q95 0.043).
 - 필드 간 상관(예: 법정동코드와 시도명)은 학습하지 않는다. 한 필드 안의 어휘 조합은 anchor로 보존된다(데이터셋 A 시↔동 불일치 0/1000).
@@ -83,11 +107,11 @@ shape-v1 **r2.2** 구현. `Kind`, `FieldShape`, `Shape`, `infer_shape`, `auto_ma
   - `full_report`(키 2~3 판정, n = 64와 A' 보고)와 `public_csv`(`NOREA_PUBLIC_CSV=경로 [NOREA_PUBLIC_CSV_SHA256=hex]`, 키 1~3 판정과 결측률 판정)는 `-- --ignored`로 돌린다.
 
 ### 검증 상태
-`cargo test -p noreacore`(lib 43 + shape_vectors 1 + distinguishability 1, ignored 2), `cargo clippy -p noreacore --all-targets -- -D warnings`, wasm32 release build, getrandom 0(`cargo tree -p norea-web --target wasm32-unknown-unknown`), `cargo deny check`, `./scripts/test.sh`(ALL CHECKS PASSED)가 통과한다. 상세: `/Users/mac/dev/derator/Fable_5_1/tasks/reports/WP-01.md`, `WP-02.md`.
+`cargo test -p noreacore`(lib 56 + shape_vectors 1 + distinguishability 1, ignored 2. vectors 1), `cargo clippy -p noreacore --all-targets -- -D warnings`, wasm32 release build, getrandom 0(`cargo tree -p norea-web --target wasm32-unknown-unknown`), `cargo deny check`, `./scripts/test.sh`(ALL CHECKS PASSED)가 통과한다. 상세: `/Users/mac/dev/derator/Fable_5_1/tasks/reports/WP-01.md`, `WP-02.md`, `WP-03.md`.
 
 ## 불변 조건 (바꾸려면 ADR + 희진 승인)
 
-1. `norea.evidence.v1` 필드, signing payload 바이트, `SIG_CTX = "norea/evidence/v1"`, Merkle 구조, blob AEAD. WP-03 vector 동결 이후 고정. vector 테스트가 깨지면 고치지 말고 멈춰서 보고(ADR-0008).
+1. `norea.evidence.v1` 필드, signing payload 바이트, `SIG_CTX = "norea/evidence/v1"`, Merkle 구조, blob AEAD. 2026-11-09 WP-03 수락으로 **Frozen**. 동결 vector `tests/vectors/norea-evidence-v1.json`이 감시한다. vector 테스트가 깨지면 고치지 말고 멈춰서 보고한다(ADR-0008).
 2. `noreacore`는 RNG, 네트워크, 파일 I/O, 키 저장, 시계에 의존하지 않는다. 브라우저 wasm 의존성 트리에 getrandom 0개(ADR-0005).
 3. 입력 파일을 절대 수정하지 않는다. 항상 새 파일.
 4. 하드웨어 정직성: `hardwareDuringSigning`을 사실대로(ADR-0006).

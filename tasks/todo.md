@@ -53,3 +53,9 @@ WP-02 4차(r2.2): 보호 NUMERIC 정렬열을 중복 포함 V[0..m)으로 바꿨
 - 데이터셋 A와 공개 CSV n=1000 판정 모두 통과(AUC A 0.467~0.497, 공개 CSV 0.491~0.516).
 - A' area KS 0.024 < q95 0.043.
 - 전체 검증 통과.
+
+## WP-03 Review
+
+희진이 "WP-03 시작해"(HANDS-PROTOCOL §1.4 "바로 해")로 승인해 계획 확인 단계 없이 진행했다. 결과는 막힘(QUESTION 2개)이다. `merkle.rs`, `blob.rs`, `sign.rs`, `evidence.rs`를 CORE-API 시그니처대로 구현했고, 수락 기준 1~3, 5~8, 10의 단위 테스트를 추가했다(lib 56 passed). core/Cargo.toml에서 이미 있던 ml-dsa, sha2, hmac, chacha20poly1305의 `zeroize` feature를 켰다. 새 crate는 없고 Cargo.lock에는 zeroize 의존 edge만 추가됐다. getrandom은 0이다. 동결 vector(`core/tests/vectors.rs`, `tests/vectors/norea-evidence-v1.json`)는 만들지 않았다. 스펙의 6행 입력은 n=1에서도 `CanaryExhausted`가 난다. `id`(P-001..P-006)가 unique STRING이라 보호되는데 템플릿 공간이 6개뿐이고 6개 모두 실제 값이기 때문이다(QUESTION 1). 그래서 기준 4의 SIG_CTX 실험과 기준 9는 실행하지 않았다. 기준 1의 "count 변조 → 거짓"은 RFC 9162 알고리즘상 같은 path 모양에서는 성립하지 않는다. 64개 경우가 그렇고 테스트로 고정했다(QUESTION 2). clippy, wasm build, `cargo deny`, `./scripts/test.sh`는 통과했다. 5만 행 `build_evidence(n=64)`는 release에서 128~139 ms였다. 상세: `/Users/mac/dev/derator/Fable_5_1/tasks/reports/WP-03.md`.
+
+WP-03 2차: 머리가 QUESTION 1(vector 입력의 id를 P-013..P-406으로, JSON 끝 LF 없음, CSV 7레코드 모두 LF)과 QUESTION 2(기준 1 문구 수정)에 답했다. `blob::derive_blob_key`를 pub으로 올렸다. `core/tests/vectors.rs`를 쓰고 `tests/vectors/norea-evidence-v1.json`을 생성했고, 두 번째 실행에서 대조 통과를 확인했다. 입력 바이트는 스펙 텍스트와 같고 original_sha256도 일치한다. SIG_CTX 1바이트 실험에서 vector 테스트가 실패하는 것을 확인했고, 원복 뒤 실험 전 파일과 바이트 동일함을 확인했다. 전체 검증은 통과했다(lib 56 + vectors 1, clippy, wasm, getrandom 0, deny, test.sh). Frozen 표기는 머리 수락 대기다.
