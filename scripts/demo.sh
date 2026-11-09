@@ -23,7 +23,7 @@ fi
 
 step "1. 데모 데이터 / demo data"
 SRC=""
-for c in "$ROOT/target/public-csv/raw.csv" $(find /Users/mac/dev /private/tmp/claude-501 \( -iname "raw.csv" -o -iname "*법정동*.csv" \) 2>/dev/null); do
+for c in "$ROOT/demo/data/legal-dong-code.csv" "$ROOT/target/public-csv/raw.csv"; do
   if [ -f "$c" ] && head -1 "$c" | grep -q "법정동코드"; then SRC="$c"; break; fi
 done
 if [ -z "$SRC" ]; then

@@ -43,7 +43,7 @@ NoREA는 운영자가 자기 소유의 공개 데이터에 가상 레코드(cana
 python3 -m http.server 8080 -d web/public  # http://localhost:8080
 ```
 
-`demo.sh`는 국토교통부 법정동코드 공개 CSV(20,561행)를 쓴다. 기본 위치는 `target/public-csv/raw.csv`이고 `target/`은 git에 없으므로 따로 받아 두어야 한다. `/dev/urandom`으로 만든 데모용 테스트 키로 protect한 뒤, 크롤러 사본 3종(HTML 표, JSON API 응답, 행 섞은 CSV)과 무관한 데이터 1종을 check하고, HTML 사본으로 disclosure를 만들어 `norea-verify`로 검증한다. 마지막으로 1바이트 변조본이 FAIL 나는 것을 보인다. 2026-11-09 실행 결과(Apple M4, 전체 약 3~5 s):
+`demo.sh`는 국토교통부 법정동코드 공개 CSV(20,561행)를 쓴다. 저장소의 `demo/data/legal-dong-code.csv`(국토교통부 법정동코드 전체자료, 공공데이터포털 data.go.kr 제공, 공공누리 출처표시 조건으로 재배포)를 쓴다. `/dev/urandom`으로 만든 데모용 테스트 키로 protect한 뒤, 크롤러 사본 3종(HTML 표, JSON API 응답, 행 섞은 CSV)과 무관한 데이터 1종을 check하고, HTML 사본으로 disclosure를 만들어 `norea-verify`로 검증한다. 마지막으로 1바이트 변조본이 FAIL 나는 것을 보인다. 2026-11-09 실행 결과(Apple M4, 전체 약 3~5 s):
 
 | 사본 | 대조 경로 | matched |
 |---|---|---|
