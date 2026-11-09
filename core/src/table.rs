@@ -102,6 +102,17 @@ struct CsvStyle {
     last_terminated: bool,
 }
 
+impl Table {
+    /// Format this table was parsed from. Crate-internal: shape inference
+    /// needs it because CSV `Str("")` counts as missing (shape-v1 §1.2).
+    pub(crate) fn format(&self) -> Format {
+        match self.style {
+            Style::Json(_) => Format::Json,
+            Style::Csv(_) => Format::Csv,
+        }
+    }
+}
+
 fn strip_bom(bytes: &[u8]) -> (bool, &[u8]) {
     match bytes.strip_prefix(BOM) {
         Some(rest) => (true, rest),

@@ -2,7 +2,8 @@
 //!
 //! Pure logic only. No RNG, network, file I/O, key storage or clock
 //! (CONTEXT.md invariant 2). Public API: Fable_5_1/docs/CORE-API.md.
-//! Implemented: error, table (WP-01). Other modules are empty until their WP.
+//! Implemented: error, table (WP-01); norm, shape, canary (WP-02).
+//! Other modules are empty until their WP.
 
 pub mod anchor;
 pub mod blob;
@@ -12,11 +13,15 @@ pub mod disclose;
 pub mod error;
 pub mod evidence;
 pub mod merkle;
+pub mod norm;
 pub mod shape;
 pub mod sign;
 pub mod table;
 
 pub use error::{Error, ErrorCode};
+
+/// 32-byte key (K, seed, K_d, K_blob). CORE-API common section.
+pub type Key32 = [u8; 32];
 
 #[cfg(test)]
 mod tests {
