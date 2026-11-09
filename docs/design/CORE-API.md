@@ -1,6 +1,6 @@
 # noreacore / norea-web 공개 API
 
-손이 구현할 함수 목록과 시그니처. 이름을 바꾸지 않는다(바인딩, CLI, 테스트가 이 이름을 부른다). 반환 JSON의 스키마는 protocol/ 문서가 정의한다. 시그니처를 바꿔야 하면 보고서에 `QUESTION:`으로 올린다.
+구현할 함수 목록과 시그니처. 이름을 바꾸지 않는다(바인딩, CLI, 테스트가 이 이름을 부른다). 반환 JSON의 스키마는 protocol/ 문서가 정의한다. 시그니처를 바꿔야 하면 설계 변경으로 올린다.
 
 공통: `type Key32 = [u8; 32]`. 에러는 `noreacore::Error { code: ErrorCode, message: String }`, `ErrorCode ∈ {BadInput, NoMarker, CanaryExhausted, BadEvidence, BadSignature, BadBlob, BadDisclosure, BadAnchor}`. 메시지는 영어 기술 문구(UI가 한국어로 바꾼다). 메시지에 비밀, 입력 데이터 값, 경로를 넣지 않는다.
 
@@ -118,7 +118,7 @@ pub fn attach_anchor(ev: &mut Evidence, anchor: Anchor) -> Result<(), Error>;   
 
 `optionsJson`: `{"n": 32, "markerFields": ["addr","area_m2"] | null, "exclusions": ["..."], "format": "json"|"csv"|null}`.
 
-`metaJson`(disclose, 2026-11-09 머리 결정): `{"sourceClaim": "...", "capturedClaim": "YYYY-MM-DDTHH:MM:SSZ", "captureMethodClaim": "..."}`. 셋 다 선택이고 없으면 빈 문자열. core `SuspectMeta`의 snake_case 필드로 매핑한다.
+`metaJson`(disclose, 2026-11-09 설계 결정): `{"sourceClaim": "...", "capturedClaim": "YYYY-MM-DDTHH:MM:SSZ", "captureMethodClaim": "..."}`. 셋 다 선택이고 없으면 빈 문자열. core `SuspectMeta`의 snake_case 필드로 매핑한다.
 
 에러: 바인딩은 `JsError`를 던지고 메시지는 `CODE: message`(CODE는 core `ErrorCode` 이름 또는 `ANCHOR_UNAVAILABLE`). platform-web이 CODE를 잘라 `error.code`로, 나머지를 한국어 문구로 바꾼다.
 

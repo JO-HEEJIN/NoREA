@@ -2,7 +2,7 @@
 
 Status: **Frozen** (2026-11-09, WP-03 수락. 동결 vector `tests/vectors/norea-evidence-v1.json`, json evidence_id `bb94b64d…`, csv `44c3b4c5…`). Frozen 이후에는 한 바이트도 바꾸지 않는다. 바꾸려면 `norea.evidence.v2`를 새로 만들고 verifier가 둘 다 지원한다.
 
-이 문서는 규범(normative)이다. 구현은 이 문서를 따르고, 문서와 구현이 다르면 구현이 틀린 것이다. 단, 동결 vector와 문서가 다르면 멈추고 머리에게 보고한다.
+이 문서는 규범(normative)이다. 구현은 이 문서를 따르고, 문서와 구현이 다르면 구현이 틀린 것이다. 단, 동결 vector와 문서가 다르면 멈추고 보고한다.
 
 표기: `||` 바이트 연결, `u32be(x)` 4바이트 big-endian, `lp(x) = u32be(len(x)) || x`, `hex()` 소문자 hex, `b64()` RFC 4648 §4 표준 base64(padding 있음), `utf8()` UTF-8 인코딩. 해시는 전부 SHA-256.
 

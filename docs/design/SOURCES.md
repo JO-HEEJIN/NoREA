@@ -1,6 +1,6 @@
 # 출처
 
-ProvGuard ADR(2026-11-08, 이전 세션)에서 옮겨 왔다. 머리(Fable 5.1)는 이번 세션에서 이 링크들을 다시 열어 확인하지 않았다. 손이 어떤 WP에서 이 출처에 의존하는 결정을 할 때는 원문을 열어 제목과 내용을 대조하고 보고서에 "확인함/불일치"를 적는다(CLAUDE.md 규칙 7).
+ProvGuard ADR(2026-11-08, 이전 세션)에서 옮겨 왔다. 이번 설계에서 이 링크들을 다시 열어 확인하지 않았다. 어떤 WP에서 이 출처에 의존하는 결정을 할 때는 원문을 열어 제목과 내용을 대조하고 "확인함/불일치"를 적는다.
 
 | # | 주제 | URL | 의존하는 결정 | 재확인 |
 |---|---|---|---|---|
@@ -21,4 +21,4 @@ ProvGuard ADR(2026-11-08, 이전 세션)에서 옮겨 왔다. 머리(Fable 5.1)�
 
 표준 문서(링크 없이 번호로 인용):
 - FIPS 204 (ML-DSA), RFC 5869 (HKDF), RFC 2104 (HMAC), RFC 8439 (ChaCha20-Poly1305), RFC 9162 (CT v2, Merkle tree), RFC 3161 (TSP), RFC 4998 (ERS), RFC 4180 (CSV), RFC 3339 (timestamps), RFC 4648 (base64), RFC 8785 (JCS, 채택하지 않음), UAX #15 (Unicode Normalization).
-- opentimestamps-client README (https://github.com/opentimestamps/opentimestamps-client) — 확인함 2026-11-09(머리, WebFetch). 제목 "OpenTimestamps Client". `ots verify README.md.ots` 형식이며 대상 파일명을 proof 이름에서 추정("Assuming target filename is 'README.md'"). `-f` 옵션은 README에 없음. digest 직접 지정 방법은 미확인(WP-08 단계 0).
+- opentimestamps-client README (https://github.com/opentimestamps/opentimestamps-client) — 확인함 2026-11-09(WebFetch). 제목 "OpenTimestamps Client". `ots verify README.md.ots` 형식이며 대상 파일명을 proof 이름에서 추정("Assuming target filename is 'README.md'"). `-f` 옵션은 README에 없음. digest 직접 지정 방법은 미확인(WP-08 단계 0).

@@ -8,8 +8,8 @@ ProvGuard Phase 0은 `provguard.evidence.v1`과 `SIG_CTX = "provguard/evidence/v
 ## Decision
 - 새 namespace: schema `norea.evidence.v1`, `norea.disclosure.v1`, `norea.custody-backup.v1`; `SIG_CTX = "norea/evidence/v1"`; HKDF salt `norea/v1`; crate `noreacore`, `norea-web`, `norea-verify`.
 - `provguard.evidence.v1`은 verifier가 지원하지 않는다. 구 vector 파일은 docs/LEGACY-REVIEW.md에 기록만 남기고 새 repo에 넣지 않는다.
-- ProvGuard 코드는 "참고용 소스"다. 손은 복사해 와도 되지만 이름, 포맷, 테스트를 전부 NoREA 스펙에 맞춰 바꾼다(LEGACY-REVIEW 재사용 맵).
+- ProvGuard 코드는 "참고용 소스"다. 복사해 와도 되지만 이름, 포맷, 테스트를 전부 NoREA 스펙에 맞춰 바꾼다(LEGACY-REVIEW 재사용 맵).
 
 ## Consequences
 - 지금이 포맷을 고칠 마지막 기회였다. WP-03 vector 동결 뒤에는 ADR-0008 정책이 적용된다.
-- 다음에 또 "새로 시작"하지 않도록, 동결 전 WP-01~04에서 프로토콜 문서의 모든 열린 질문을 닫는다. 열린 질문은 보고서 `QUESTION:`으로 올리고 머리가 문서를 고친다.
+- 다음에 또 "새로 시작"하지 않도록, 동결 전 WP-01~04에서 프로토콜 문서의 모든 열린 질문을 닫는다. 열린 질문은 설계 질문으로 올리고 설계 문서를 고친다.

@@ -12,7 +12,7 @@ Status: **Frozen** (2026-11-09, WP-06 수락). 동결 대상은 17개 함수 이
 | 4 | `keyInfo()` | `{method, fingerprint, hardwareDuringSigning, createdClaim, persisted}` \| null | | | `method`: `prf`/`passphrase`/`secure-enclave`/`tpm-sealed`/`keystore`. `fingerprint`: `sha256(vk)` 앞 16 hex. `persisted`: `navigator.storage.persist()` 결과(`true`/`false`/`"unknown"`). UI가 "브라우저가 키 저장소를 지울 수 있음" 문구에 쓴다 |
 | 5 | `setupKey({passphrase?})` | backup bytes | 생성 | | 새 K+seed(또는 SE 키) 생성, 저장, 암호화 백업 반환. 기존 키가 있으면 거부(UI가 먼저 `confirmAction` 후 `deleteKey`) |
 | 6 | `deleteKey()` | void | | | 로컬 키 삭제. UI는 백업 확인 후 부른다 |
-| 7 | `exportBackup({passphrase?})` | bytes | | | `norea.custody-backup.v1`. 인자 없음: 현재 방식(prf 또는 passphrase)의 백업. `{passphrase}`: prf 키를 passphrase로 감싼 두 번째 백업(custody §5. 호환 확장, 2026-11-09 머리 결정, WP-09에서 구현. 그 전까지 web은 인자를 무시한다) |
+| 7 | `exportBackup({passphrase?})` | bytes | | | `norea.custody-backup.v1`. 인자 없음: 현재 방식(prf 또는 passphrase)의 백업. `{passphrase}`: prf 키를 passphrase로 감싼 두 번째 백업(custody §5. 호환 확장, 2026-11-09 설계 결정, WP-09에서 구현. 그 전까지 web은 인자를 무시한다) |
 | 8 | `importBackup(bytes)` | void | | | 구조 검증 후 저장(custody 스펙 §3) |
 | 9 | `inspect({input, format?})` | `InspectResult` | | | 비밀 없이 입력을 파싱해 필드, kind, 추천 marker, 행 수, 경고를 돌려준다. protect 전에 UI가 보여준다 |
 | 10 | `protect({input, format?, datasetId, n, markerFields?, exclusions?, passphrase?})` | `{marked, evidenceJson, evidenceId, summary}` | 예 | | 입력 불변. `format` 생략 시 자동 감지(JSON 파싱 시도 → 아니면 csv) |

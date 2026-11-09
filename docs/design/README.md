@@ -9,4 +9,4 @@
 - `protocol/` 동결된 포맷 5개: `evidence-v1`(norea.evidence.v1), `canary-record-shape-v1`(생성기와 대조 규칙), `disclosure-v1`(분쟁 제출 패키지와 제3자 검증), `custody-web-v1`(웹 키 보관과 백업), `platform-contract`(UI와 플랫폼 계약 17개)
 - `adr/` 결정 기록 14개(과거 시제, 불변)
 
-문서에서 "머리"는 설계 역할, "손"은 구현 역할을 가리킨다. `QUESTION:`은 구현 중 설계로 되돌려 보낸 질문의 표기다. 동결 vector는 `../../tests/vectors/`에 있다.
+동결 vector는 `../../tests/vectors/`에 있다. 문서의 WP 번호는 구현 작업 단위(WP-00~WP-11)를 가리킨다.

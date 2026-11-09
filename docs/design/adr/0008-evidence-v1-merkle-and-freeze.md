@@ -11,7 +11,7 @@ ProvGuard의 `canary_commit`은 집합 전체의 단일 해시였다. 분쟁에�
 - 서명 payload는 11행 `\n` 구분 UTF-8(docs/protocol/evidence-v1.md §6). JSON canonicalization(JCS)을 payload에 쓰지 않는다. Swift/Kotlin이 문자열 연결만으로 재현할 수 있어야 하기 때문이다.
 - `original_sha256`을 payload에 넣는다. "같은 공개 출처에서 가져왔다"는 반박에 대해 "원본에는 없던 행"임을 보이기 위해서다.
 - `evidence_id = SHA-256(payload)`를 handle로 쓴다.
-- 동결: WP-03이 `tests/vectors/norea-evidence-v1.json`을 생성하는 순간 포맷은 동결된다. 이후 변경은 `norea.evidence.v2`로만 한다. vector 테스트가 깨지면 고치지 않고 멈춰서 머리에게 보고한다.
+- 동결: WP-03이 `tests/vectors/norea-evidence-v1.json`을 생성하는 순간 포맷은 동결된다. 이후 변경은 `norea.evidence.v2`로만 한다. vector 테스트가 깨지면 고치지 않고 멈춰서 보고한다.
 - 포맷 변경이 아닌 것: 새 `canary_kind`, 새 anchor kind, payload 밖 새 키.
 
 ## Alternatives rejected
