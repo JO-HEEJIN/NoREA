@@ -1,6 +1,6 @@
 //! Shared test fixtures: the test-only PRNG and the WP-02 synthetic dataset A
 //! generator, used by distinguishability.rs and check_disclose.rs (moved here
-//! from distinguishability.rs in WP-04 2차, unchanged).
+//! from distinguishability.rs in WP-04 round 2, unchanged).
 #![allow(dead_code)]
 
 use std::collections::HashSet;

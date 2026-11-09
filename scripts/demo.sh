@@ -17,27 +17,41 @@ START=$(date +%s)
 step() { printf '\n=== %s ===\n' "$*"; }
 
 # Always (no-op when up to date): a stale release binary would show old behavior.
-step "release CLI 빌드 / building release CLI"
-cargo build --release -p norea-cli || exit 1
+# NOREA_DEMO_NO_BUILD=1 skips the build and uses the existing target/release binaries.
+if [ "${NOREA_DEMO_NO_BUILD:-0}" = 1 ]; then
+  step "release CLI build skipped (NOREA_DEMO_NO_BUILD=1)"
+  [ -x "$NOREA" ] && [ -x "$VERIFY" ] || { echo "release binaries missing: run without NOREA_DEMO_NO_BUILD"; exit 1; }
+else
+  step "building release CLI"
+  cargo build --release -p norea-cli || exit 1
+fi
 
-step "1. 데모 데이터 / demo data"
-SRC=""
-for c in "$ROOT/demo/data/legal-dong-code.csv" "$ROOT/target/public-csv/raw.csv"; do
-  if [ -f "$c" ] && head -1 "$c" | grep -q "법정동코드"; then SRC="$c"; break; fi
-done
-if [ -z "$SRC" ]; then
-  echo "국토교통부 법정동 CSV를 찾지 못함 / MOLIT CSV not found. 이 데모는 그 파일이 필요하다."
+step "1. demo data"
+# Default: synthetic San Francisco listings (scripts/demo-mkdata.mjs). Alternatives via NOREA_DEMO_INPUT:
+# demo/data/world-cities.csv (GeoNames, CC BY 4.0) or demo/data/legal-dong-code.csv (Korean MOLIT).
+SRC="${NOREA_DEMO_INPUT:-$ROOT/demo/data/sf-listings-synthetic.csv}"
+case "$SRC" in /*) ;; *) SRC="$ROOT/$SRC" ;; esac
+if [ ! -f "$SRC" ]; then
+  echo "demo input not found: $SRC"
   exit 1
 fi
 cp "$SRC" "$D/input.csv"
-if grep -q '"' "$D/input.csv"; then echo "quoted CSV is not supported by demo-crawler.mjs"; exit 1; fi
 echo "source: $SRC"
-echo "input.csv: 국토교통부 법정동코드 (공공데이터), 행 수는 inspect 참조 / row count: see inspect"
+if head -1 "$SRC" | grep -q "^listing_id,address,neighborhood,price_usd,beds,sqft,listed"; then
+  DATASET_ID="demo/sf-listings-synthetic"
+  echo "input.csv: SYNTHETIC San Francisco listings made by scripts/demo-mkdata.mjs. No real addresses or prices. Row count: see inspect."
+elif head -1 "$SRC" | grep -q "^name,country,subcountry,geonameid"; then
+  DATASET_ID="demo/world-cities"
+  echo "input.csv: GeoNames world cities (real public data, CC BY 4.0, via datahub.io). Row count: see inspect."
+else
+  DATASET_ID="demo/molit-bjd"
+  echo "input.csv: Korean MOLIT legal-dong codes (real public data). Row count: see inspect."
+fi
 
-step "2. 테스트 키 / test keys (DEMO ONLY, not real keys)"
+step "2. test keys (DEMO ONLY, not real keys)"
 head -c 32 /dev/urandom > "$D/k.bin"
 head -c 32 /dev/urandom > "$D/seed.bin"
-echo "k.bin $(wc -c < "$D/k.bin" | tr -d ' ') B, seed.bin $(wc -c < "$D/seed.bin" | tr -d ' ') B from /dev/urandom. 데모용 테스트 키다. 실제 키는 웹 UI의 WebAuthn PRF / passphrase 보관을 쓴다."
+echo "k.bin $(wc -c < "$D/k.bin" | tr -d ' ') B, seed.bin $(wc -c < "$D/seed.bin" | tr -d ' ') B from /dev/urandom. These are demo test keys; real keys live in the web UI, wrapped by WebAuthn PRF or a passphrase."
 
 step "3. norea inspect"
 "$NOREA" inspect "$D/input.csv" > "$D/inspect.json"
@@ -50,10 +64,10 @@ console.log("warnings: "+r.warnings.map(w=>w.code+"("+w.field+")").join(", "));
 
 step "4. norea protect --n 32"
 t0=$(node -e 'console.log(Date.now())')
-"$NOREA" protect --n 32 --dataset-id demo/molit-bjd --key-file "$D/k.bin" $T --seed-file "$D/seed.bin" --out-dir "$D" "$D/input.csv" || exit 1
+"$NOREA" protect --n 32 --dataset-id "$DATASET_ID" --key-file "$D/k.bin" $T --seed-file "$D/seed.bin" --out-dir "$D" "$D/input.csv" || exit 1
 t1=$(node -e 'console.log(Date.now())')
-echo "protect: $((t1 - t0)) ms (native, process 포함 / including process start)"
-echo "입력 파일은 수정하지 않는다 / input untouched: $(shasum -a 256 "$SRC" | cut -c1-16) == $(shasum -a 256 "$D/input.csv" | cut -c1-16)"
+echo "protect: $((t1 - t0)) ms (native, including process start)"
+echo "input file untouched: $(shasum -a 256 "$SRC" | cut -c1-16) == $(shasum -a 256 "$D/input.csv" | cut -c1-16)"
 
 step "4b. norea anchor (RFC 3161 TSA, freetsa.org)"
 EV="$D/input.evidence.json"
@@ -62,19 +76,19 @@ echo "\$ norea anchor input.evidence.json --tsa https://freetsa.org/tsr"
 if "$NOREA" anchor "$EV" --tsa https://freetsa.org/tsr; then
   EV="$D/input.evidence.anchored.json"
   ANCHORED=1
-  echo "이후 단계는 anchored evidence를 쓴다 / using $(basename "$EV") from here on"
+  echo "using $(basename "$EV") from here on"
 else
-  echo "anchor 생략(네트워크 없음). 이 evidence는 시점을 증명하지 않는다 / anchor skipped (no network): this evidence does not prove when it was created."
+  echo "anchor skipped (no network or TSA error): this evidence does not prove when it was created."
 fi
 
-step "5. 크롤러 사본 생성 / simulated crawler copies"
+step "5. simulated crawler copies"
 node "$ROOT/scripts/demo-crawler.mjs" "$D/input.marked.csv" "$D/input.csv" "$D" || exit 1
-echo "copy-html.html     HTML <table>, 열 이름 변경, &amp;, 줄바꿈/공백 삽입 / renamed columns, entities, whitespace"
-echo "copy-api.json      {\"status\":\"ok\",\"data\":[...]} 키 이름 변경 / renamed keys"
-echo "copy-shuffled.csv  행 순서 섞음, CRLF / shuffled rows"
-echo "unrelated.csv      원본(canary 없음)의 부산광역시 행만 / unmarked original, one province"
+echo "copy-html.html     HTML <table>, renamed columns, &amp; entities, extra line breaks and whitespace"
+echo "copy-api.json      {\"status\":\"ok\",\"data\":[...]} with renamed keys"
+echo "copy-shuffled.csv  rows shuffled, CRLF line endings"
+echo "unrelated.csv      rows of one neighborhood/country/province taken from the ORIGINAL input (no canaries)"
 
-step "6. norea check (각 사본 / each copy)"
+step "6. norea check (each copy)"
 for f in copy-html.html copy-api.json copy-shuffled.csv unrelated.csv; do
   t0=$(node -e 'console.log(Date.now())')
   "$NOREA" check --key-file "$D/k.bin" $T "$D/$f" "$EV" > "$D/check-$f.json" 2>"$D/check-$f.err"
@@ -87,7 +101,7 @@ console.log(`${name.padEnd(18)} kind=${String(r.suspect_kind).padEnd(5)} matched
 ' "$D/check-$f.json" "$f" "$rc" "$((t1 - t0))"
 done
 
-step "7. norea disclose (HTML 사본 기준 / from the HTML copy)"
+step "7. norea disclose (from the HTML copy)"
 NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 "$NOREA" disclose --key-file "$D/k.bin" $T \
   --source-claim https://example-crawler.test/data \
@@ -96,12 +110,12 @@ NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   --out "$D/disclosure.json" "$EV" "$D/copy-html.html" || exit 1
 echo "disclosure.json: $(wc -c < "$D/disclosure.json" | tr -d ' ') B"
 
-step "8. 키 없이 검증 / verify without any key: norea-verify disclosure"
+step "8. verify without any key: norea-verify disclosure"
 echo "\$ norea-verify disclosure disclosure.json copy-html.html"
 "$VERIFY" disclosure "$D/disclosure.json" "$D/copy-html.html"
 echo "--> exit code $? (0 PASS, 1 FAIL, 2 input error)"
 
-step "9. 사본 1바이트 변조 / suspect copy with 1 byte changed"
+step "9. suspect copy with 1 byte changed"
 node -e '
 const fs=require("fs"); const b=fs.readFileSync(process.argv[1]);
 const i=b.indexOf(Buffer.from("scraped")); b[i]=b[i]^0x20; fs.writeFileSync(process.argv[2], b);
@@ -109,16 +123,16 @@ console.log(`byte ${i} flipped (${String.fromCharCode(b[i]^0x20)} -> ${String.fr
 ' "$D/copy-html.html" "$D/copy-html.tampered.html"
 echo "\$ norea-verify disclosure disclosure.json copy-html.tampered.html"
 "$VERIFY" disclosure "$D/disclosure.json" "$D/copy-html.tampered.html"
-echo "--> exit code $? (1 expected / FAIL 기대)"
+echo "--> exit code $? (1 expected: FAIL)"
 
-step "이 데모가 증명하지 않는 것 / what this demo does NOT prove"
+step "what this demo does NOT prove"
 if [ "$ANCHORED" = 1 ]; then
-  echo "1. TSA genTime과 imprint는 검증했지만 TSA 인증서 체인은 norea-verify가 검증하지 않는다(--export-anchors 후 openssl ts -verify로 수동 확인) / TSA cert chain: manual check."
+  echo "1. The TSA genTime and imprint were checked, but norea-verify does not check the TSA certificate chain (manual: --export-anchors, then openssl ts -verify)."
 else
-  echo "1. 시점 anchor가 없다(네트워크 없음으로 생략). created_claim은 로컬 시계의 주장일 뿐이다 / no time anchor: created_claim is a local-clock claim."
+  echo "1. No time anchor (skipped). created_claim is only a claim made by the local clock."
 fi
-echo "2. 사본의 출처와 포착 시점(source/captured/method)은 운영자 주장이고 검증되지 않는다 / capture source and time are operator claims."
-echo "3. 확률 상한은 생성기 모델 기준이지 실제 세계 확률이 아니다 / the probability bound is a generator-model bound."
+echo "2. Where, when and how the copy was captured (source/captured/method) are operator claims and are not verified."
+echo "3. The probability bound is relative to the generator model, not a real-world probability."
 
 END=$(date +%s)
-printf '\n총 소요 / total: %ss. 출력 / output: %s\n' "$((END - START))" "$D"
+printf '\ntotal: %ss. output: %s\n' "$((END - START))" "$D"

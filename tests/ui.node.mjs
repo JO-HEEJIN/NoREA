@@ -22,7 +22,8 @@ const ok = (c, m) => { if (!c) { console.error('FAIL:', m); process.exit(1); } p
 const root = process.argv[2];
 const T = await import(pathToFileURL(`${root}/ui-text.js`).href);
 const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]/u;
-const HANGUL = /[가-힣]/;
+// English sentence: has Latin letters and no Hangul syllables (U+AC00..U+D7A3).
+const ENGLISH = s => /[A-Za-z]/.test(s) && !/[\uAC00-\uD7A3]/.test(s);
 
 // ---------------------------------------------------------------- 1. module surface
 {
@@ -38,17 +39,17 @@ const seen = new Set();
 for (const code of CODES) {
   const field = code === 'NO_MARKER_CANDIDATE' ? undefined : 'seq';
   const s = T.warningText({ code, field });
-  ok(HANGUL.test(s) && !EMOJI.test(s) && !s.startsWith('알 수 없는'), `${code} -> Korean sentence: ${s}`);
-  if (field) ok(s.includes("'seq' 필드"), `${code} names the field`);
+  ok(ENGLISH(s) && !EMOJI.test(s) && !s.startsWith('Unknown'), `${code} -> English sentence: ${s}`);
+  if (field) ok(s.includes("Field 'seq'"), `${code} names the field`);
   ok(!seen.has(s), `${code} sentence is distinct`);
   seen.add(s);
 }
-ok(T.warningText({ code: 'NO_FREE_SPACE', field: 'seq' }).includes('이 필드를 뺀 발행본을 만드세요'), 'NO_FREE_SPACE tells the action (drop the field)');
-ok(T.warningText({ code: 'NO_FREE_SPACE', field: 'seq' }).includes('빈 값 공간이 없어 canary를 만들 수 없습니다'), 'NO_FREE_SPACE says canary cannot be made');
-ok(T.warningText({ code: 'UNIQUE_OPAQUE_COPIED', field: 'f' }).includes('뺀 발행본'), 'UNIQUE_OPAQUE_COPIED recommends excluding (§8 한계 4)');
-ok(T.warningText({ code: 'NUMERIC_CODE_LIKE', field: 'f' }).includes('한계'), 'NUMERIC_CODE_LIKE states the limit (§3.1, §8)');
+ok(T.warningText({ code: 'NO_FREE_SPACE', field: 'seq' }).includes('Make a release without this field'), 'NO_FREE_SPACE tells the action (drop the field)');
+ok(T.warningText({ code: 'NO_FREE_SPACE', field: 'seq' }).includes('has no free value space, so canaries cannot be generated'), 'NO_FREE_SPACE says canary cannot be made');
+ok(T.warningText({ code: 'UNIQUE_OPAQUE_COPIED', field: 'f' }).includes('a release without this field'), 'UNIQUE_OPAQUE_COPIED recommends excluding (§8 limit 4)');
+ok(T.warningText({ code: 'NUMERIC_CODE_LIKE', field: 'f' }).includes('limitation'), 'NUMERIC_CODE_LIKE states the limit (§3.1, §8)');
 ok(T.warningText({ code: 'HIGH_MISSING', field: 'f' }).includes('20%'), 'HIGH_MISSING mentions 20%');
-ok(T.warningText({ code: 'ZZZ' }).startsWith('알 수 없는 경고'), 'unknown code -> generic sentence, no throw');
+ok(T.warningText({ code: 'ZZZ' }).startsWith('Unknown warning'), 'unknown code -> generic sentence, no throw');
 
 // ---------------------------------------------------------------- 3. input checks
 ok(T.passphraseProblem('12345678901') !== null, 'passphrase of 11 chars rejected');
@@ -61,7 +62,7 @@ for (const [v, good] of [['8', true], ['256', true], ['32', true], ['7', false],
 ok(T.markerProblem([]) !== null && T.markerProblem(['a', 'b', 'c', 'd', 'e']) !== null && T.markerProblem(['a']) === null, 'markers: 1..4');
 ok(T.datasetIdProblem('  ') !== null && T.datasetIdProblem('a/b') === null && T.datasetIdProblem('가'.repeat(86)) !== null, 'dataset id: non-empty, <= 256 UTF-8 bytes');
 ok(JSON.stringify(T.parseExclusions('﻿a\r\n\n b \nc')) === '["a","b","c"]', 'exclusions: one per line, trimmed, empty lines dropped, BOM removed');
-ok(T.thresholdText(['a']).includes('1개 이상') && T.thresholdText(['a', 'b', 'c']).includes('2개 이상'), 'threshold sentence uses min(2, m)');
+ok(T.thresholdText(['a']).includes('at least 1 of the 1') && T.thresholdText(['a', 'b', 'c']).includes('at least 2 of the 3'), 'threshold sentence uses min(2, m)');
 
 // ---------------------------------------------------------------- 4. file names
 {
@@ -76,20 +77,20 @@ ok(T.thresholdText(['a']).includes('1개 이상') && T.thresholdText(['a', 'b', 
 // ---------------------------------------------------------------- 5. errors
 {
   const mk = (code, message, detail) => Object.assign(new Error(message), { code, detail });
-  const v = T.errorView(mk('BAD_INPUT', '입력 파일이나 옵션이 올바르지 않습니다.', 'BadInput: invalid JSON at line 1 column 9'), { ctx: 'protect', forcedJson: true });
-  ok(v.message === '입력 파일이나 옵션이 올바르지 않습니다.' && v.hint.startsWith('표준 JSON이 아닙니다(주석, 마지막 쉼표 등)') && v.detail.includes('line 1 column 9'),
-    'forced JSON + BAD_INPUT -> message verbatim, "표준 JSON이 아닙니다" hint, detail with line/column');
+  const v = T.errorView(mk('BAD_INPUT', 'The input file or options are invalid.', 'BadInput: invalid JSON at line 1 column 9'), { ctx: 'protect', forcedJson: true });
+  ok(v.message === 'The input file or options are invalid.' && v.hint.startsWith('Not standard JSON (comments, trailing commas, etc.)') && v.detail.includes('line 1 column 9'),
+    'forced JSON + BAD_INPUT -> message verbatim, "Not standard JSON" hint, detail with line/column');
   ok(T.errorView(mk('BAD_INPUT', 'x'), { ctx: 'protect', forcedJson: false }).hint === null, 'BAD_INPUT without forced JSON -> no JSON hint');
-  ok(T.errorView(mk('BAD_INPUT', 'x'), { ctx: 'protect', jsonName: true }).hint === T.TEXT.jsonReadAsCsv, 'auto-detect on *.json + BAD_INPUT -> "JSON으로 읽기" hint');
+  ok(T.errorView(mk('BAD_INPUT', 'x'), { ctx: 'protect', jsonName: true }).hint === T.TEXT.jsonReadAsCsv, 'auto-detect on *.json + BAD_INPUT -> "Read as JSON" hint');
   ok(T.errorView(mk('BAD_INPUT', 'x'), { ctx: 'protect', forcedJson: true, jsonName: true }).hint === T.TEXT.notStandardJson, 'forced JSON wins over the file-name hint');
-  ok(T.errorView(mk('BAD_EVIDENCE', 'x'), { ctx: 'check' }).hint.includes('키가 다르거나 증거가 변조'), 'BAD_EVIDENCE in check -> "키가 다르거나 증거가 변조"');
-  ok(!T.errorView(mk('BAD_EVIDENCE', 'x'), { ctx: 'verify' }).hint.includes('키가'), 'BAD_EVIDENCE in verify does not mention a key');
+  ok(T.errorView(mk('BAD_EVIDENCE', 'x'), { ctx: 'check' }).hint.includes('Wrong key, or the evidence was tampered with'), 'BAD_EVIDENCE in check -> "Wrong key, or the evidence was tampered with"');
+  ok(!/key/i.test(T.errorView(mk('BAD_EVIDENCE', 'x'), { ctx: 'verify' }).hint), 'BAD_EVIDENCE in verify does not mention a key');
   for (const code of ['KEY_MISSING', 'KEY_EXISTS', 'PRF_UNSUPPORTED', 'CANCELLED', 'NO_MARKER', 'CANARY_EXHAUSTED', 'BAD_DISCLOSURE', 'ANCHOR_UNAVAILABLE', 'BACKUP_INVALID']) {
     const h = T.errorView(mk(code, 'm')).hint;
-    ok(typeof h === 'string' && HANGUL.test(h), `${code} -> hint ${h}`);
+    ok(typeof h === 'string' && ENGLISH(h), `${code} -> hint ${h}`);
   }
-  ok(T.errorView(mk('BAD_PASSPHRASE', '키를 열 수 없습니다.')).hint === null, 'BAD_PASSPHRASE: platform message alone');
-  const plain = T.errorView(new Error('처리 중 예상하지 못한 오류가 발생했습니다.'));
+  ok(T.errorView(mk('BAD_PASSPHRASE', 'Cannot unlock the key.')).hint === null, 'BAD_PASSPHRASE: platform message alone');
+  const plain = T.errorView(new Error('An unexpected error occurred during processing.'));
   ok(plain.code === null && plain.detail === null && plain.hint === null, 'error without code -> message only');
   ok(T.errorView(undefined).message.length > 0, 'non-Error -> generic message');
 }
@@ -98,14 +99,14 @@ ok(T.thresholdText(['a']).includes('1개 이상') && T.thresholdText(['a', 'b', 
 {
   const caps = { platform: 'web', prf: 'unknown', hardwareDuringSigning: false, anchorRelay: null };
   const none = T.keyStatus(caps, null);
-  ok(none.warnings.includes('서명하는 동안 키가 이 브라우저 메모리에 있습니다.'), 'no key, hardwareDuringSigning false -> memory sentence');
+  ok(none.warnings.includes('During signing, the key is in this browser\'s memory.'), 'no key, hardwareDuringSigning false -> memory sentence');
   const pass = T.keyStatus(caps, { method: 'passphrase', fingerprint: '0123456789abcdef', hardwareDuringSigning: false, createdClaim: '2026-11-09T00:00:00Z', persisted: 'unknown' });
   ok(pass.warnings.includes(T.TEXT.hardwareMemory) && pass.lines.some(l => l.includes('0123456789abcdef')), 'passphrase key: fingerprint and memory sentence');
   ok(pass.notes.includes(T.TEXT.storageMayClear), 'persisted "unknown" -> storage may be cleared');
   ok(T.keyStatus(caps, { method: 'passphrase', fingerprint: 'f', hardwareDuringSigning: false, persisted: false }).notes.includes(T.TEXT.storageMayClear), 'persisted false -> storage may be cleared');
   ok(!T.keyStatus(caps, { method: 'passphrase', fingerprint: 'f', hardwareDuringSigning: false, persisted: true }).notes.includes(T.TEXT.storageMayClear), 'persisted true -> no clear warning');
   const prf = T.keyStatus(caps, { method: 'prf', fingerprint: 'f', hardwareDuringSigning: false, persisted: true });
-  ok(prf.notes.includes(T.TEXT.prfBackup) && T.TEXT.prfBackup.startsWith('passkey를 잃으면 이 백업도 열 수 없습니다'), 'prf key -> "passkey를 잃으면 이 백업도 열 수 없습니다"');
+  ok(prf.notes.includes(T.TEXT.prfBackup) && T.TEXT.prfBackup.startsWith('If you lose the passkey, this backup cannot be opened'), 'prf key -> "If you lose the passkey, this backup cannot be opened"');
   ok(pass.notes.includes(T.TEXT.createdClaim), 'createdClaim is a claim, not time proof');
   const hw = T.keyStatus({ ...caps, hardwareDuringSigning: true }, { method: 'secure-enclave', fingerprint: 'f', hardwareDuringSigning: true, persisted: true });
   ok(hw.warnings.length === 0, 'hardwareDuringSigning true -> no memory sentence (and never a "never leaves hardware" claim here)');
@@ -115,23 +116,23 @@ ok(T.thresholdText(['a']).includes('1개 이상') && T.thresholdText(['a', 'b', 
 // ---------------------------------------------------------------- 7. anchors
 {
   const none = T.anchorItems([]);
-  ok(none[0].status === 'N/A' && none[0].text.includes('생성 시점을 증명하지 않습니다') && none.at(-1).text === T.TEXT.tsaChain, 'no anchors -> N/A "증명하지 않습니다" + TSA chain note');
+  ok(none[0].status === 'N/A' && none[0].text.includes('does not prove when it was created') && none.at(-1).text === T.TEXT.tsaChain, 'no anchors -> N/A "does not prove" + TSA chain note');
   const errd = T.anchorItems([{ kind: 'rfc3161', imprintOk: false, chainVerified: false, error: 'anchor verification not implemented' }]);
-  ok(errd[0].status === 'N/A' && errd[0].text.includes('not implemented') && errd.some(i => i.text.includes('증명하지 않습니다')), 'anchor with error -> N/A');
+  ok(errd[0].status === 'N/A' && errd[0].text.includes('not implemented') && errd.some(i => i.text.includes('does not prove')), 'anchor with error -> N/A');
   const good = T.anchorItems([{ kind: 'rfc3161', imprint_ok: true, gen_time: '2026-11-08T12:00:03Z', chain_verified: false, error: null }]);
   ok(good[0].status === 'PASS' && good[0].text.includes('2026-11-08T12:00:03Z') && good.at(-1).text === T.TEXT.tsaChain, 'verified anchor (snake_case) -> PASS with genTime, chain note still shown');
   ok(T.anchorItems([{ kind: 'ots', imprintOk: false, error: null }])[0].status === 'FAIL', 'imprint mismatch -> FAIL');
 }
 
-// ---------------------------------------------------------------- 8. sentences: no emoji, "증명하지 않습니다"
+// ---------------------------------------------------------------- 8. sentences: no emoji, "does not prove"
 {
   const all = [...Object.values(T.TEXT).flat()];
   ok(all.every(s => typeof s === 'string' && !EMOJI.test(s)), 'no emoji in fixed sentences');
-  ok(T.TEXT.noTimeProof === '현재 이 증거는 생성 시점을 증명하지 않습니다.', 'anchor pending sentence (spec)');
-  ok(T.TEXT.noCaptureProof.includes('증명하지 않습니다') && T.TEXT.tsaChain.includes('검증하지 않습니다'), 'capture time and TSA chain are stated as not proven');
-  ok(T.TEXT.discloseBefore.startsWith('공개하는 canary는 상대방이 알게 되어') && T.TEXT.discloseNoSecret.startsWith('이 파일에는 마스터 키나 서명키가 들어 있지 않습니다'), 'disclosure-v1 §6 sentences verbatim');
-  ok(T.TEXT.commitBad.startsWith('이 증거는 이 서명키로 만든 것이 아니거나 변조되었습니다'), 'commit_ok false sentence');
-  ok(T.TEXT.verifyNoKey.includes('서명키 없이 동작합니다'), 'verify tab works without a key');
+  ok(T.TEXT.noTimeProof === 'This evidence does not prove when it was created.', 'anchor pending sentence (spec)');
+  ok(T.TEXT.noCaptureProof.includes('does not prove') && T.TEXT.noCaptureProof.includes('The source and capture time of the copy are claims and are not verified.') && T.TEXT.tsaChain.startsWith('The TSA certificate chain is not verified by this tool'), 'capture time and TSA chain are stated as not proven');
+  ok(T.TEXT.discloseBefore.startsWith('Disclosed canaries become known to the other party') && T.TEXT.discloseNoSecret.startsWith('This file contains neither the master key nor the signing key'), 'disclosure-v1 §6 sentences verbatim');
+  ok(T.TEXT.commitBad.startsWith('This evidence was not made with this signing key, or it was tampered with'), 'commit_ok false sentence');
+  ok(T.TEXT.verifyNoKey.includes('works without a signing key'), 'verify tab works without a key');
 }
 
 // ---------------------------------------------------------------- 9. real platform results through the helpers
@@ -149,7 +150,7 @@ const irows = T.inspectRows(ins);
 ok(irows.length === ins.fields.length && irows.filter(r => r.checked).map(r => r.name).sort().join() === [...ins.suggestedMarkers].sort().join(), `inspect rows: suggested markers pre-checked (${ins.suggestedMarkers})`);
 ok(irows.find(r => r.name === 'use').eligible === false, 'CATEGORICAL field is not marker-eligible');
 const seqRow = irows.find(r => r.name === 'seq');
-ok(seqRow.warnings.some(w => w.includes('빈 값 공간이 없어')), 'dense seq field -> NO_FREE_SPACE sentence in its row');
+ok(seqRow.warnings.some(w => w.includes('has no free value space')), 'dense seq field -> NO_FREE_SPACE sentence in its row');
 
 const caps = await platform.capabilities();
 await platform.setupKey({ passphrase: PW });
@@ -163,7 +164,7 @@ ok(names.marked === 'parcels.marked.json', 'protect summary.format -> file names
 
 const rep = await platform.check({ suspect: pr.marked, evidenceJson: pr.evidenceJson, passphrase: PW });
 const cv = T.checkView(rep);
-ok(cv.commitOk && cv.counts.matched === 8 && cv.rows.length === 8 && cv.rows.every(r => r.status === '일치' && r.found && r.hint), 'checkView: 8 matched rows with found + hint');
+ok(cv.commitOk && cv.counts.matched === 8 && cv.rows.length === 8 && cv.rows.every(r => r.status === 'matched' && r.found && r.hint), 'checkView: 8 matched rows with found + hint');
 ok(cv.evidenceItems.every(i => i.status === 'PASS') && cv.anchorItems[0].status === 'N/A', 'checkView: evidence PASS, anchor N/A');
 ok(cv.matchedIndices.join() === '0,1,2,3,4,5,6,7', 'checkView: matched indices for the disclose tab');
 const unrelated = await platform.check({ suspect: input, evidenceJson: pr.evidenceJson, passphrase: PW });
@@ -176,7 +177,7 @@ let other = null;
 try { other = await platform.check({ suspect: pr.marked, evidenceJson: pr.evidenceJson, passphrase: PW }); } catch (e) { other = e; }
 if (other instanceof Error) {
   const v = T.errorView(other, { ctx: 'check' });
-  ok(other.code === 'BAD_EVIDENCE' && v.hint.includes('키가 다르거나'), `other key -> ${other.code}, hint "키가 다르거나 증거가 변조"`);
+  ok(other.code === 'BAD_EVIDENCE' && v.hint.includes('Wrong key'), `other key -> ${other.code}, hint "Wrong key, or the evidence was tampered with"`);
 } else {
   const v = T.checkView(other);
   ok(!v.commitOk && v.commitText === T.TEXT.commitBad, 'other key -> commit_ok false sentence');
@@ -193,12 +194,12 @@ ok(T.docKind(disclosureJson) === 'disclosure' && T.docKind(pr2.evidenceJson) ===
 const dr = await platform.verifyDisclosure(disclosureJson, pr2.marked);
 const dv = T.disclosureSections(dr);
 ok(dv.pass === (dr.verdict.integrity_ok && dr.verdict.all_reproduced) && dv.pass === true, 'disclosure PASS = integrity_ok && all_reproduced');
-ok(dv.sections.map(s => s.title).join('|') === '1. Evidence|2. 시점 anchor (판정에 넣지 않음)|3. 사본|4. 공개된 canary|5. 판정', 'disclosure sections follow the WP-05 human output');
-ok(dv.sections[3].items[0].text.endsWith('3/3') && dv.sections[3].items[1].text.endsWith('3/3') && dv.sections[3].items.length === 5, 'Merkle n/n, 재현 n/n, one line per disclosed index');
-ok(dv.statement === dr.statement && dv.statement.startsWith('무결성: PASS'), 'statement verbatim');
+ok(dv.sections.map(s => s.title).join('|') === '1. Evidence|2. Time anchor (a checked anchor with a wrong imprint FAILs; none is fine)|3. Copy|4. Disclosed canaries|5. Verdict', 'disclosure sections follow the WP-05 human output');
+ok(dv.sections[3].items[0].text.endsWith('3/3') && dv.sections[3].items[1].text.endsWith('3/3') && dv.sections[3].items.length === 5, 'Merkle n/n, reproduced n/n, one line per disclosed index');
+ok(dv.statement === dr.statement && /PASS/.test(dv.statement) && !/FAIL/.test(dv.statement.split('\n')[0]), 'statement verbatim (core text, language set by core)');
 const tampered = pr2.marked.slice(); tampered[tampered.length - 2] ^= 1;
 const dvBad = T.disclosureSections(await platform.verifyDisclosure(disclosureJson, tampered));
-ok(!dvBad.pass && dvBad.sections[2].items[0].status === 'FAIL' && dvBad.statement.startsWith('무결성: FAIL'), 'suspect changed by 1 byte -> FAIL, 사본 FAIL');
+ok(!dvBad.pass && dvBad.sections[2].items[0].status === 'FAIL' && /FAIL/.test(dvBad.statement.split('\n')[0]), 'suspect changed by 1 byte -> FAIL, copy FAIL');
 const ev = T.evidenceSections(await platform.verifyEvidence(pr2.evidenceJson));
 ok(ev.pass && ev.sections.length === 3 && ev.sections[1].items[0].status === 'N/A', 'evidence sections: PASS, anchor N/A');
 const evObj = JSON.parse(pr2.evidenceJson); evObj.sig_b64 = evObj.sig_b64.replace(/^./, c => (c === 'A' ? 'B' : 'A'));

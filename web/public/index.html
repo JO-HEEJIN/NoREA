@@ -1,84 +1,84 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
-<title>NoREA: 데이터 복제 증명</title>
+<title>NoREA: prove your data was copied</title>
 <link rel="stylesheet" href="./style.css">
 </head>
 <body>
 <header>
   <h1>NoREA</h1>
-  <p>공개하는 <strong>내 데이터</strong>에 가상 레코드(canary)를 넣고, ML-DSA-65 서명으로 증거(evidence)를 남깁니다.
-  누군가 데이터를 베껴 가면 canary가 함께 따라가므로, 의심 사본에서 canary를 찾아 복제를 증명할 수 있습니다.
-  막는 도구가 아니라 증명하는 도구입니다.</p>
-  <p class="note">모든 처리는 이 브라우저 안에서만 일어납니다. 데이터, canary, 키는 서버로 보내지 않습니다.</p>
-  <p id="app-status" class="status" role="status" aria-live="polite">불러오는 중입니다.</p>
+  <p>Put a few fictional records (canaries) into <strong>your own</strong> public data and sign the evidence with ML-DSA-65.
+  Whoever copies the data copies the canaries too, so you can find them in a suspicious copy and prove it.
+  This tool does not stop copying. It just makes denying it awkward.</p>
+  <p class="note">Everything runs in this browser. Your data, canaries, and keys are never sent to a server.</p>
+  <p id="app-status" class="status" role="status" aria-live="polite">Loading.</p>
 </header>
 
-<nav class="tabs" role="tablist" aria-label="작업 단계">
-  <button type="button" role="tab" id="tab-key" aria-controls="panel-key" aria-selected="true">1. 서명키</button>
-  <button type="button" role="tab" id="tab-protect" aria-controls="panel-protect" aria-selected="false" tabindex="-1">2. 보호하기</button>
-  <button type="button" role="tab" id="tab-check" aria-controls="panel-check" aria-selected="false" tabindex="-1">3. 대조하기</button>
-  <button type="button" role="tab" id="tab-disclose" aria-controls="panel-disclose" aria-selected="false" tabindex="-1">4. 공개 패키지 만들기</button>
-  <button type="button" role="tab" id="tab-verify" aria-controls="panel-verify" aria-selected="false" tabindex="-1">5. 검증하기</button>
+<nav class="tabs" role="tablist" aria-label="Steps">
+  <button type="button" role="tab" id="tab-key" aria-controls="panel-key" aria-selected="true">1. Signing key</button>
+  <button type="button" role="tab" id="tab-protect" aria-controls="panel-protect" aria-selected="false" tabindex="-1">2. Protect</button>
+  <button type="button" role="tab" id="tab-check" aria-controls="panel-check" aria-selected="false" tabindex="-1">3. Check</button>
+  <button type="button" role="tab" id="tab-disclose" aria-controls="panel-disclose" aria-selected="false" tabindex="-1">4. Disclose</button>
+  <button type="button" role="tab" id="tab-verify" aria-controls="panel-verify" aria-selected="false" tabindex="-1">5. Verify</button>
 </nav>
 
 <main>
-<!-- 1. 서명키 -->
+<!-- 1. Signing key -->
 <section id="panel-key" role="tabpanel" aria-labelledby="tab-key" tabindex="0">
-  <h2>서명키</h2>
+  <h2>Signing key</h2>
   <div id="key-status" class="lines"></div>
   <ul id="key-warnings" class="warn-list"></ul>
   <ul id="key-notes" class="note-list"></ul>
 
   <div id="key-create" hidden>
-    <h3>새 서명키 만들기</h3>
+    <h3>Create a signing key</h3>
     <p class="note" id="key-backup-text"></p>
-    <h4>passkey로 만들기</h4>
+    <h4>With a passkey</h4>
     <p id="key-prf-text" class="note"></p>
-    <button type="button" id="key-create-passkey">passkey로 서명키 만들기</button>
-    <h4>passphrase로 만들기</h4>
+    <button type="button" id="key-create-passkey">Create key with passkey</button>
+    <h4>With a passphrase</h4>
     <p class="note" id="key-pass-rule"></p>
-    <label for="key-pass">passphrase (12자 이상)</label>
+    <label for="key-pass">Passphrase (12+ characters)</label>
     <input id="key-pass" type="password" autocomplete="new-password" minlength="12" aria-describedby="key-pass-rule">
-    <label for="key-pass2">passphrase 다시 입력</label>
+    <label for="key-pass2">Passphrase again</label>
     <input id="key-pass2" type="password" autocomplete="new-password" minlength="12">
-    <button type="button" id="key-create-pass">passphrase로 서명키 만들기</button>
+    <button type="button" id="key-create-pass">Create key with passphrase</button>
   </div>
 
   <div id="key-manage" hidden>
-    <h3>백업과 삭제</h3>
-    <button type="button" id="key-backup">백업 파일 다시 받기</button>
-    <p class="note">삭제하면 이 브라우저에서 키가 사라집니다. 백업 파일이 없으면 되돌릴 수 없습니다.</p>
+    <h3>Backup and delete</h3>
+    <button type="button" id="key-backup">Download backup again</button>
+    <p class="note">Deleting removes the key from this browser. Without a backup file this cannot be undone.</p>
     <div class="check-row">
       <input id="key-delete-confirm" type="checkbox">
-      <label for="key-delete-confirm">백업 파일을 안전한 곳에 보관했습니다</label>
+      <label for="key-delete-confirm">I have stored the backup file somewhere safe</label>
     </div>
-    <button type="button" id="key-delete" class="danger" disabled>이 브라우저에서 서명키 삭제</button>
+    <button type="button" id="key-delete" class="danger" disabled>Delete signing key from this browser</button>
   </div>
 
-  <h3>백업 파일에서 복원</h3>
-  <label for="key-restore-file">백업 파일 (norea-key-backup.json)</label>
+  <h3>Restore from backup</h3>
+  <label for="key-restore-file">Backup file (norea-key-backup.json)</label>
   <input id="key-restore-file" type="file" accept=".json,application/json">
-  <button type="button" id="key-restore">복원</button>
+  <button type="button" id="key-restore">Restore</button>
 
   <div id="key-msg" class="status" role="status" aria-live="polite"></div>
 </section>
 
-<!-- 2. 보호하기 -->
+<!-- 2. Protect -->
 <section id="panel-protect" role="tabpanel" aria-labelledby="tab-protect" tabindex="0" hidden>
-  <h2>보호하기</h2>
-  <p>공개할 데이터 파일(JSON 배열 또는 CSV)을 고르면 필드를 분석합니다. 원본 파일은 바꾸지 않고, canary를 넣은 새 파일(marked)을 만듭니다.</p>
-  <label for="protect-file">공개할 데이터 파일 (JSON 또는 CSV)</label>
+  <h2>Protect</h2>
+  <p>Pick the data file you are about to publish (JSON array or CSV) and the fields get analyzed. The original file is left alone; a new file with canaries (marked) is created.</p>
+  <label for="protect-file">Data file to publish (JSON or CSV)</label>
   <input id="protect-file" type="file" accept=".json,.csv,application/json,text/csv">
-  <label for="protect-format">입력 형식</label>
+  <label for="protect-format">Input format</label>
   <select id="protect-format">
-    <option value="">자동 감지</option>
-    <option value="json">JSON으로 읽기</option>
-    <option value="csv">CSV로 읽기</option>
+    <option value="">Auto-detect</option>
+    <option value="json">Read as JSON</option>
+    <option value="csv">Read as CSV</option>
   </select>
   <p id="protect-detected" class="lines"></p>
   <p id="protect-json-note" class="note" hidden></p>
@@ -87,115 +87,115 @@
   <p id="protect-threshold" class="note"></p>
 
   <div id="protect-options" hidden>
-    <label for="protect-dsid">데이터셋 ID (발행본 이름, 예: parcels/2026-11)</label>
+    <label for="protect-dsid">Dataset ID (release name, e.g. parcels/2026-11)</label>
     <input id="protect-dsid" type="text" autocomplete="off" spellcheck="false">
-    <label for="protect-n">canary 수 (8~256)</label>
+    <label for="protect-n">Number of canaries (8-256)</label>
     <input id="protect-n" type="number" min="8" max="256" step="1" value="32">
-    <label for="protect-excl">exclusions 파일 (선택. 실제로 존재하는 값 목록, 한 줄에 하나. canary가 이 값과 겹치지 않게 합니다. 이 파일도 브라우저 밖으로 나가지 않습니다)</label>
+    <label for="protect-excl">Exclusions file (optional. A list of values that really exist, one per line. Canaries will avoid them. This file does not leave the browser either)</label>
     <input id="protect-excl" type="file" accept=".txt,.csv,text/plain">
     <div id="protect-pass-wrap" hidden>
-      <label for="protect-pass">passphrase (서명키를 열 때 씁니다)</label>
+      <label for="protect-pass">Passphrase (unlocks the signing key)</label>
       <input id="protect-pass" type="password" autocomplete="current-password">
     </div>
-    <button type="button" id="protect-run">보호하기</button>
+    <button type="button" id="protect-run">Protect</button>
   </div>
   <div id="protect-msg" class="status" role="status" aria-live="polite"></div>
 
   <div id="protect-result" hidden>
-    <h3>결과</h3>
+    <h3>Result</h3>
     <div id="protect-summary" class="lines"></div>
     <p class="warn" id="protect-private"></p>
-    <button type="button" id="protect-save-marked">marked 파일 내려받기 (공개용)</button>
-    <button type="button" id="protect-save-evidence">evidence 내려받기 (비공개 보관)</button>
-    <h4>시점 anchor</h4>
+    <button type="button" id="protect-save-marked">Download marked file (publish this)</button>
+    <button type="button" id="protect-save-evidence">Download evidence (keep private)</button>
+    <h4>Time anchor</h4>
     <p class="warn" id="protect-anchor-text"></p>
-    <button type="button" id="protect-anchor" disabled aria-describedby="protect-anchor-text">시점 anchor 받기 (준비 중)</button>
+    <button type="button" id="protect-anchor" disabled aria-describedby="protect-anchor-text">Get time anchor (in preparation)</button>
   </div>
 
   <details>
-    <summary>이 방식의 한계</summary>
+    <summary>Limits of this approach</summary>
     <ul id="protect-limits"></ul>
   </details>
 </section>
 
-<!-- 3. 대조하기 -->
+<!-- 3. Check -->
 <section id="panel-check" role="tabpanel" aria-labelledby="tab-check" tabindex="0" hidden>
-  <h2>대조하기</h2>
-  <p>의심되는 사본과 그 발행본의 evidence를 넣으면, 서명키로 canary를 열어 사본에서 찾습니다. 사본은 JSON, CSV, HTML, 텍스트 모두 됩니다.</p>
-  <label for="check-suspect">의심 사본 파일</label>
+  <h2>Check</h2>
+  <p>Give it a suspicious copy and the evidence of the release it came from. The signing key opens the canaries and they are searched for in the copy. JSON, CSV, HTML, and plain text all work.</p>
+  <label for="check-suspect">Suspicious copy</label>
   <input id="check-suspect" type="file">
-  <label for="check-evidence">그 발행본의 evidence 파일 (.evidence.json)</label>
+  <label for="check-evidence">Evidence file of that release (.evidence.json)</label>
   <input id="check-evidence" type="file" accept=".json,application/json">
   <div id="check-pass-wrap" hidden>
-    <label for="check-pass">passphrase (서명키를 열 때 씁니다)</label>
+    <label for="check-pass">Passphrase (unlocks the signing key)</label>
     <input id="check-pass" type="password" autocomplete="current-password">
   </div>
-  <button type="button" id="check-run">대조하기</button>
+  <button type="button" id="check-run">Check</button>
   <div id="check-msg" class="status" role="status" aria-live="polite"></div>
 
   <div id="check-result" hidden>
-    <h3>결과</h3>
+    <h3>Result</h3>
     <p id="check-commit" class="warn" hidden></p>
     <p id="check-counts" class="big"></p>
     <p id="check-partial-note" class="note" hidden></p>
     <div id="check-table" class="table-wrap"></div>
-    <h4>evidence 상태</h4>
+    <h4>Evidence status</h4>
     <ul id="check-evidence-items" class="result-list"></ul>
-    <h4>시점 anchor</h4>
+    <h4>Time anchor</h4>
     <ul id="check-anchor-items" class="result-list"></ul>
     <p class="note" id="check-capture"></p>
-    <button type="button" id="check-save-report">대조 리포트 내려받기 (JSON)</button>
-    <p id="check-next" class="note" hidden>일치한 canary가 있습니다. '공개 패키지 만들기' 탭에서 제3자에게 낼 패키지를 만들 수 있습니다.</p>
+    <button type="button" id="check-save-report">Download check report (JSON)</button>
+    <p id="check-next" class="note" hidden>Some canaries matched. In the 'Disclose' tab you can build a package to hand to a third party.</p>
   </div>
 </section>
 
-<!-- 4. 공개 패키지 만들기 -->
+<!-- 4. Disclose -->
 <section id="panel-disclose" role="tabpanel" aria-labelledby="tab-disclose" tabindex="0" hidden>
-  <h2>공개 패키지 만들기</h2>
-  <p id="disclose-empty">먼저 '대조하기' 탭에서 대조를 마치세요. 일치한 canary가 있어야 공개 패키지를 만들 수 있습니다.</p>
+  <h2>Disclose</h2>
+  <p id="disclose-empty">Nothing to disclose yet. Run a check in the 'Check' tab first; a disclosure package needs at least one matched canary.</p>
   <div id="disclose-form" hidden>
     <p id="disclose-source" class="lines"></p>
     <p class="warn" id="disclose-before"></p>
     <p class="note" id="disclose-nosecret"></p>
     <fieldset>
-      <legend>공개할 canary (기본: 일치한 canary 전부)</legend>
+      <legend>Canaries to disclose (default: all matched)</legend>
       <div id="disclose-indices" class="index-grid"></div>
     </fieldset>
     <fieldset>
-      <legend>사본 정보 (주장)</legend>
+      <legend>About the copy (claims)</legend>
       <p class="note" id="disclose-claim"></p>
-      <label for="disclose-source-claim">사본 출처 (주장, claim. 검증되지 않음. 예: URL)</label>
+      <label for="disclose-source-claim">Source of the copy (claim, not verified. e.g. a URL)</label>
       <input id="disclose-source-claim" type="text" autocomplete="off" spellcheck="false">
-      <label for="disclose-captured-claim">사본 포착 시각 (주장, claim. 검증되지 않음. 예: 2026-11-30T15:00:00Z)</label>
+      <label for="disclose-captured-claim">Capture time of the copy (claim, not verified. e.g. 2026-11-30T15:00:00Z)</label>
       <input id="disclose-captured-claim" type="text" autocomplete="off" spellcheck="false">
-      <label for="disclose-method-claim">포착 방법 (주장, claim. 검증되지 않음. 예: 브라우저에서 다른 이름으로 저장)</label>
+      <label for="disclose-method-claim">Capture method (claim, not verified. e.g. browser Save Page As)</label>
       <input id="disclose-method-claim" type="text" autocomplete="off">
     </fieldset>
     <div id="disclose-pass-wrap" hidden>
-      <label for="disclose-pass">passphrase (서명키를 열 때 씁니다)</label>
+      <label for="disclose-pass">Passphrase (unlocks the signing key)</label>
       <input id="disclose-pass" type="password" autocomplete="current-password">
     </div>
-    <button type="button" id="disclose-run">공개 패키지 만들기</button>
+    <button type="button" id="disclose-run">Build disclosure package</button>
   </div>
   <div id="disclose-msg" class="status" role="status" aria-live="polite"></div>
   <div id="disclose-result" hidden>
-    <h3>결과</h3>
+    <h3>Result</h3>
     <p id="disclose-summary" class="lines"></p>
     <p class="note" id="disclose-submit"></p>
     <p class="note" id="disclose-capture"></p>
-    <button type="button" id="disclose-save">공개 패키지 내려받기 (disclosure JSON)</button>
+    <button type="button" id="disclose-save">Download disclosure package (JSON)</button>
   </div>
 </section>
 
-<!-- 5. 검증하기 -->
+<!-- 5. Verify -->
 <section id="panel-verify" role="tabpanel" aria-labelledby="tab-verify" tabindex="0" hidden>
-  <h2>검증하기</h2>
+  <h2>Verify</h2>
   <p class="big" id="verify-nokey"></p>
-  <label for="verify-doc">evidence 또는 공개 패키지(disclosure) 파일</label>
+  <label for="verify-doc">Evidence or disclosure package file</label>
   <input id="verify-doc" type="file" accept=".json,application/json">
-  <label for="verify-suspect">사본 파일 (공개 패키지를 검증할 때 필요)</label>
+  <label for="verify-suspect">Copy file (needed to verify a disclosure package)</label>
   <input id="verify-suspect" type="file">
-  <button type="button" id="verify-run">검증하기</button>
+  <button type="button" id="verify-run">Verify</button>
   <div id="verify-msg" class="status" role="status" aria-live="polite"></div>
   <div id="verify-result" hidden>
     <h3 id="verify-verdict" class="big"></h3>
@@ -207,7 +207,7 @@
 </main>
 
 <footer>
-  <p class="note">NoREA 웹 버전. 서명키는 이 브라우저와 내려받은 암호화 백업 파일에만 있습니다.</p>
+  <p class="note">NoREA web version. The signing key lives only in this browser and in the encrypted backup file you downloaded.</p>
   <p id="build-info" class="note" hidden></p>
 </footer>
 

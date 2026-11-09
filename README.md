@@ -1,106 +1,116 @@
 # NoREA
 
-긁어간 데이터를 증명한다. 막지 않는다.
+We don't block scrapers. Nobody can. So we leave fingerprints in your data and prove the copy later.
 
-NoREA는 운영자가 자기 소유의 공개 데이터에 가상 레코드(canary)를 심고 ML-DSA-65로 서명한 증거를 남긴 뒤, 운영자가 직접 가져온 의심 사본에서 canary를 대조해 복제를 증명하고, 제3자가 비밀 없이 그 결과를 검증하게 하는 방어 도구다.
+NoREA lets a data owner plant fake but plausible records (canaries) in their own public table, sign evidence of it with ML-DSA-65, check a suspect copy the owner brings in, and hand a third party a disclosure they can verify with no secrets at all.
 
-## 문제
+The name is a nod to REA, "Reverse Engineer Anything" (github.com/morluto/rea): one MCP and an AI agent can take apart any site or app, record its sessions and rebuild it. Their showcase walks through Notion's clipboard bridge. We think that is simply where things are going, and you will not stop it with a bot wall. What you can do is make sure the clone carries your fingerprints. Hence NoREA.
 
-공공기관과 데이터 사업자는 데이터를 공개해야 한다. 크롤러와 복제 사업자는 그것을 긁어가 재판매하거나 학습에 쓴다. 막는 기술(봇 차단, 난독화, fingerprinting)은 공개의 목적과 충돌하고 결국 뚫린다. 지도 업계는 trap street(가상의 거리)로 복제를 증명해 왔지만, 표 형태 데이터에는 그런 표준 도구가 없다. NoREA는 막는 기능을 만들지 않는다. 증명만 한다.
+## The problem
 
-## 동작 원리
+Public agencies and data businesses have to publish. Scrapers take it and resell it or train on it. Blocking (bot walls, obfuscation, fingerprinting) fights the reason the data is public, and it loses anyway. Map makers solved this decades ago with trap streets. Tables never got the equivalent. So we built it. We prove. We don't block.
 
-1. `inspect`: 필드별 kind, 빈 값 공간, 결측률을 보고 canary를 숨길 marker 필드를 추천한다. 빈 공간이 없는 필드(연번 등)는 경고한다.
-2. `protect`: 필드 분포를 따라 만든 가상 레코드 n개(기본 32)를 원본 사이에 끼운 새 파일을 만든다. 생성은 HMAC 기반 결정적 draw이고 RNG를 쓰지 않는다. 입력 파일은 수정하지 않는다.
-3. evidence: canary 집합의 Merkle root, 암호화된 canary blob 해시, 파일 해시를 ML-DSA-65(FIPS 204)로 서명한다. evidence는 운영자가 비공개로 보관한다.
-4. `check`: 의심 사본(CSV, JSON, HTML, 텍스트. 키 이름 변경, 중첩, 전각, NFD, 행 순서 무관)에서 canary를 찾아 일치 수를 센다. 판정 기준은 marker k-of-n이다.
-5. `disclose` / `norea-verify`: 일치한 canary만 Merkle audit path와 함께 공개한 disclosure를 만든다. 감정인은 키 없이 `norea-verify disclosure`로 서명, Merkle, 사본 해시, 재현을 확인하고 우연 일치 확률 상한이 적힌 statement를 받는다.
+## What it does
 
-웹 앱에서는 이 모든 처리가 브라우저 안(WASM)에서 끝난다. 데이터, canary, 키는 서버로 가지 않는다.
+1. `inspect` looks at each field (kind, free value space, missing rate) and suggests marker fields to hide canaries in. It warns about fields with no free space, like serial numbers.
+2. `protect` writes a new file with n fake records (default 32) that follow the field distributions, mixed into the real rows. Generation is a deterministic HMAC-based draw. No RNG. The input file is never modified.
+3. Evidence: the Merkle root of the canary set, the hash of the encrypted canary blob, and the file hash get signed with ML-DSA-65 (FIPS 204). The owner keeps the evidence private.
+4. `check` finds canaries in a suspect copy (CSV, JSON, HTML, plain text; renamed keys, nesting, full-width chars, NFD and row order don't matter) and counts matches. The verdict rule is marker k-of-n.
+5. `disclose` / `norea-verify`: disclose only the matched canaries, each with its Merkle audit path. A reviewer runs `norea-verify disclosure` with no key, checks signature, Merkle, copy hash and reproduction, and gets a statement with an upper bound on the chance of an accidental match.
 
-## 무엇이 검증되고 무엇이 아닌가
+In the web app all of this runs in the browser (WASM). Data, canaries and keys never go to a server.
 
-검증된다(키 없이, 오프라인):
-- evidence의 ML-DSA-65 서명, `evidence_id = SHA-256(payload)`, canary blob 해시
-- 공개된 canary 각각의 Merkle path가 서명된 canary_root로 이어지는지
-- 제출된 사본의 SHA-256이 disclosure에 적힌 값과 같은지(1바이트만 바뀌어도 FAIL, 종료 1)
-- 공개된 canary가 그 사본에서 실제로 재현되는지
+## What gets verified
 
-검증되지 않는다:
-- 시점(anchor가 없을 때). RFC 3161 TSA anchor는 CLI `norea anchor <evidence.json> --tsa URL`로 붙이고, verifier가 토큰의 imprint(= 서명된 증거의 anchor_subject)와 genTime을 검증한다. 다른 증거의 anchor가 붙어 있으면 FAIL(종료 1)이다. anchor가 없는 evidence는 "언제 심었는가"를 증명하지 않고, `created_claim`은 운영자 기기 시계의 주장일 뿐이다. verifier도 그렇게 출력한다. OpenTimestamps, 웹 앱의 anchor 버튼, relay는 아직 없다.
-- 사본의 출처, 포착 시점, 포착 방법(`*_claim` 필드). 운영자 주장이다.
-- TSA 인증서 체인과 CMS 서명. norea-verify는 imprint와 genTime만 읽고 체인은 검증하지 않는다(`--export-anchors` 후 `openssl ts -verify`로 수동 확인).
-- 확률 상한은 생성기 모델 기준이지 실제 세계 확률이 아니다. 근거인 shape 정보는 운영자가 disclosure에 넣은 것이다.
+Without a key, offline:
+- the ML-DSA-65 signature on the evidence, `evidence_id = SHA-256(payload)`, and the canary blob hash
+- that each disclosed canary's Merkle path leads to the signed canary_root
+- that the submitted copy's SHA-256 equals the one in the disclosure (change one byte and it FAILs, exit 1)
+- that the disclosed canaries actually reproduce in that copy
 
-## 빠른 실행
+## What it does not prove
 
-준비물: Rust(`rust-toolchain.toml`이 1.99.1 고정), `rustup target add wasm32-unknown-unknown`, Cargo.lock 버전과 같은 `wasm-bindgen-cli`, Node 22+.
+- When, if there is no anchor. RFC 3161 TSA anchors are added with `norea anchor <evidence.json> --tsa URL` (CLI only), and the verifier checks the token's imprint (= the signed evidence's anchor_subject) and genTime. An anchor that belongs to different evidence FAILs (exit 1). Without an anchor, evidence says nothing about when canaries were planted. `created_claim` is just what the owner's clock said, and the verifier prints exactly that. OpenTimestamps, a web anchor button and a relay don't exist yet.
+- Where, when and how the copy was captured (`*_claim` fields). Owner claims.
+- The TSA certificate chain and CMS signature. norea-verify reads only imprint and genTime. Check the chain yourself: `--export-anchors`, then `openssl ts -verify`.
+- The probability bound is relative to our generator model, not the real world. The shape info it rests on is put in the disclosure by the owner.
+
+## Timeline, honestly
+
+This section exists because the rules say pre-session commits don't count, and we'd rather tell you than have you find out with `git log`.
+
+- Nov 8: design documents (ADRs, protocol specs) written as preparation.
+- Before the build session (commits at 00:16, 09:28, 09:57 KST on Nov 9): the workspace scaffold, the JSON/CSV table parser, the canary generator, and the evidence format with its frozen test vector.
+- During the session (10:00 to 15:00): check/disclose and third-party verification, the CLI verifier, WASM bindings and key custody, the web UI, the RFC 3161 TSA anchor, and the demo.
+
+The rules say pre-session commits are ineligible. Judge us on the session work. The git history shows the real timestamps.
+
+## Run it
+
+You need Rust (`rust-toolchain.toml` pins 1.99.1), `rustup target add wasm32-unknown-unknown`, `wasm-bindgen-cli` at the Cargo.lock version, and Node 22+.
 
 ```
-./scripts/test.sh                          # 전체 검증 (core, WASM e2e, 플랫폼 계약, CLI, 웹 UI 정적 검사, getrandom 0)
-./scripts/demo.sh                          # 심사위원용 데모. 출력과 로그는 target/demo/ (demo.log)
-./scripts/build-web.sh                     # web/public/pkg 빌드
+./scripts/test.sh                          # everything: core, WASM e2e, platform contract, CLI, web UI static checks, getrandom 0
+./scripts/demo.sh                          # the judge demo. output and log in target/demo/ (demo.log)
+./scripts/build-web.sh                     # builds web/public/pkg
 python3 -m http.server 8080 -d web/public  # http://localhost:8080
-./target/release/norea anchor out/x.evidence.json --tsa https://freetsa.org/tsr  # RFC 3161 anchor 추가 -> out/x.anchored.json (네트워크, curl 필요)
+./target/release/norea anchor out/x.evidence.json --tsa https://freetsa.org/tsr  # RFC 3161 anchor -> out/x.anchored.json (network, needs curl)
 ```
 
-`demo.sh`는 국토교통부 법정동코드 공개 CSV(20,561행)를 쓴다. 저장소의 `demo/data/legal-dong-code.csv`(국토교통부 법정동코드 전체자료, 공공데이터포털 data.go.kr 제공, 공공누리 출처표시 조건으로 재배포)를 쓴다. `/dev/urandom`으로 만든 데모용 테스트 키로 protect한 뒤, 크롤러 사본 3종(HTML 표, JSON API 응답, 행 섞은 CSV)과 무관한 데이터 1종을 check하고, HTML 사본으로 disclosure를 만들어 `norea-verify`로 검증한다. 마지막으로 1바이트 변조본이 FAIL 나는 것을 보인다. 2026-11-09 실행 결과(Apple M4, 전체 약 3~5 s):
+`demo.sh` uses synthetic San Francisco real-estate listings (20,000 rows, `demo/data/sf-listings-synthetic.csv`, made by `scripts/demo-mkdata.mjs`; fake data, no real addresses or prices). inspect picks three markers (listing_id, price_usd, address) and a 2-of-3 rule. It protects with throwaway test keys from `/dev/urandom`, adds a freetsa.org anchor if the network is up (skips it if not), checks three crawler copies plus one unrelated file, builds a disclosure from the HTML copy, verifies it with `norea-verify`, and finally shows a one-byte-tampered copy failing. Synthetic San Francisco real-estate listings (20,000 rows), run on 2026-11-09 (Apple M4, about 3 s total):
 
-| 사본 | 대조 경로 | matched |
+| Copy | Match path | matched |
 |---|---|---|
-| HTML `<table>`(열 이름 변경, `&amp;`, 줄바꿈과 공백) | text | 32/32 |
-| `{"status":"ok","data":[...]}`(키 이름 변경) | json | 32/32 |
-| 행 순서 섞은 CSV(CRLF) | csv | 32/32 |
-| 원본(canary 없음)의 부산광역시 행 | csv | 0/32 |
+| HTML `<table>` (renamed columns, `&amp;`, line breaks and whitespace) | text | 32/32 |
+| `{"status":"ok","data":[...]}` (renamed keys) | json | 32/32 |
+| shuffled CSV (CRLF) | csv | 32/32 |
+| Outer Sunset rows of the original input (no canaries) | csv | 0/32 |
 
-`norea-verify disclosure` 종료 0(PASS), 1바이트 변조본 종료 1(FAIL, 사본 해시 불일치).
+`norea-verify disclosure` exits 0 (PASS), with a model chance-match bound of 2^-43.26. The one-byte-tampered copy exits 1 (FAIL, copy hash mismatch). Real data instead: `NOREA_DEMO_INPUT=demo/data/world-cities.csv` (GeoNames, CC BY 4.0, 34,195 rows) or `NOREA_DEMO_INPUT=demo/data/legal-dong-code.csv` (Korean MOLIT, 20,561 rows). Both also give 32/32, 32/32, 32/32, 0/32 (see `demo/data/NOTICE.md`).
 
-CLI의 `--key-file`과 `--i-know-this-is-for-testing`은 테스트 전용이다. 웹 앱은 키를 WebAuthn PRF 또는 passphrase(Argon2id)로 감싸 IndexedDB에 보관한다. 웹에서는 서명하는 동안 키가 브라우저 메모리에 올라오며, UI도 그렇게 표시한다.
+`--key-file` and `--i-know-this-is-for-testing` on the CLI are for tests only. The web app wraps the key with WebAuthn PRF or a passphrase (Argon2id) and stores it in IndexedDB. On the web the key sits in browser memory while signing, and the UI says so.
 
-## 저장소 구조
+## Repository layout
 
 ```
-core/        noreacore: 순수 Rust 로직(table, norm, shape, canary, merkle, blob, sign, evidence, check, disclose). RNG, 네트워크, 파일 I/O, 시계 없음
-web/         norea-web: wasm-bindgen 바인딩. web/public/ 정적 웹앱(platform.js 계약, custody.js 키 보관, app.js UI)
-cli/         norea-verify(제3자 검증, 비밀 불필요), norea(개발·테스트용)
-tests/       smoke.node.cjs(WASM e2e), platform.node.mjs(플랫폼 계약 + 키 보관), ui.node.mjs, vectors/(동결 vector)
-scripts/     test.sh, build-web.sh, demo.sh, demo-crawler.mjs
-CONTEXT.md   현재 동작 상태. 세부 사항은 여기가 기준이다
-CLAUDE.md    작업 지침
+core/        noreacore: pure Rust (table, norm, shape, canary, merkle, blob, sign, evidence, check, disclose). No RNG, network, file I/O or clock
+web/         norea-web: wasm-bindgen bindings. web/public/ is the static app (platform.js contract, custody.js key custody, app.js UI)
+cli/         norea-verify (third-party verification, no secrets), norea (dev and test)
+tests/       smoke.node.cjs (WASM e2e), platform.node.mjs (platform contract + custody), ui.node.mjs, vectors/ (frozen vectors)
+scripts/     test.sh, build-web.sh, demo.sh, demo-crawler.mjs, demo-mkdata.mjs
+demo/data/   bundled public demo inputs and their NOTICE
+CONTEXT.md   current behavior. The source of truth for details
+CLAUDE.md    working rules
 ```
 
-## 동결 포맷과 vector
+## Frozen formats and vectors
 
-Frozen 포맷: `norea.evidence.v1`(signing payload 바이트, `SIG_CTX = "norea/evidence/v1"`, Merkle 구조, blob AEAD 포함), `record.shape.v1`, `norea.disclosure.v1`, `norea.disclosure-report.v1`, `norea.custody-backup.v1`, platform-contract v1. 동결 vector `tests/vectors/norea-evidence-v1.json`을 `core/tests/vectors.rs`가 대조하고, 같은 입력으로 WASM `protect`가 만든 evidence가 문자열까지 같은지를 `tests/smoke.node.cjs`가 확인한다. 포맷을 바꾸면 이미 발급한 증거가 검증 불가가 되므로, vector 테스트가 깨지면 고치지 않고 멈춘다.
+Frozen: `norea.evidence.v1` (signing payload bytes, `SIG_CTX = "norea/evidence/v1"`, Merkle structure, blob AEAD), `record.shape.v1`, `norea.disclosure.v1`, `norea.disclosure-report.v1`, `norea.custody-backup.v1`, platform-contract v1. `core/tests/vectors.rs` checks the frozen vector `tests/vectors/norea-evidence-v1.json`, and `tests/smoke.node.cjs` checks that WASM `protect` on the same input produces byte-identical evidence. Change a format and every evidence already issued becomes unverifiable. So if a vector test breaks, we stop. We don't "fix" it.
 
-## 측정치
+## Measurements
 
-환경: Apple M4, rustc 1.99.1 release.
+Apple M4, rustc 1.99.1 release.
 
-- 구분 불가능성: 공개 CSV(법정동코드 20,561행) n = 1000, 로지스틱 회귀 5-fold held-out AUC 0.516 / 0.506 / 0.491(키 3개). 0.5가 우연 수준이다. 합성 데이터셋 A는 0.467~0.517.
-- protect 5만 행, canary 64, 서명 포함: 437~447 ms. WASM을 node 22에서 측정했다(`tests/smoke.node.cjs`). 실제 브라우저 탭에서 잰 값은 아니다.
-- check 5만 행(n = 32, native release): JSON 5.7 MB 약 94 ms, CSV 2.4 MB 약 74 ms, HTML 10.5 MB 약 143 ms.
-- 거짓 일치: 데이터셋 A와 같은 생성기로 만든 독립 데이터 4종(seed 2~5, 우리 canary 없음)에서 matched 0/128(4 x 32). partial은 있다(14, 13, 15, 18. 주로 짧은 id 공간의 우연 일치).
-- 테스트: `./scripts/test.sh` ALL CHECKS PASSED(2026-11-09 실행). Rust 103개(core lib 68, check_disclose 15, vectors 1, shape_vectors 1, distinguishability 1, CLI unit 1 + e2e 16), WASM e2e 74, 플랫폼 계약 84, UI 105.
-- wasm 크기는 `wasm-opt -O3` 후 782 KB로 목표(600 KB)를 넘는다.
+- Indistinguishability: on a real public CSV (MOLIT legal-dong codes, 20,561 rows), n = 1000, logistic regression, 5-fold held-out AUC 0.516 / 0.506 / 0.491 (three keys). 0.5 is a coin flip. Synthetic dataset A: 0.467 to 0.517.
+- protect, 50k rows, 64 canaries, signing included: 437 to 447 ms (about 0.44 s). Measured in WASM under node 22 (`tests/smoke.node.cjs`), not in a real browser tab.
+- check, 50k rows (n = 32, native release): JSON 5.7 MB about 94 ms, CSV 2.4 MB about 74 ms, HTML 10.5 MB about 143 ms.
+- False matches: 0/128 (4 x 32) on four independent datasets made by dataset A's generator (seeds 2 to 5, none of our canaries). There are partials (14, 13, 15, 18), mostly chance hits in short id spaces.
+- Tests: `./scripts/test.sh` ALL CHECKS PASSED (2026-11-09). 366 total: Rust 103 (core lib 68, check_disclose 15, vectors 1, shape_vectors 1, distinguishability 1, CLI unit 1 + e2e 16), WASM e2e 74, platform contract 84, UI 105.
+- wasm is 782 KB after `wasm-opt -O3`. Target was 600 KB. We missed.
 
-## 한계
+## Limits
 
-- 완전 재작성 클론: 값을 새로 만들어 낸 사본에는 canary가 없으므로 잡지 못한다. NoREA는 canary를 골라 지우는 비용을 높일 뿐이다.
-- 필드 간 상관(예: 법정동코드와 시도명)은 학습하지 않는다. 날짜 같은 의미 제약도 모른다(`2003-02-31`이 나올 수 있다). 상관을 아는 분석자에게는 canary가 드러날 수 있다.
-- dense key: 연번 `1..N`처럼 빈 값 공간이 없는 unique 필드에는 canary를 만들 수 없다. inspect가 경고하고 그 필드를 뺀 발행본을 권한다.
-- EAV: 한 행의 값을 서로 다른 배열에 나눠 넣은 변환은 구조 경로로 못 잡는다.
-- 시점 anchor는 RFC 3161 TSA를 CLI로만 붙일 수 있다(OTS, 웹 anchor 버튼, relay 없음). TSA 체인 검증은 수동(openssl)이다.
-- WebAuthn PRF 경로와 Safari/Firefox 동작은 아직 실제 브라우저에서 검증하지 않았다(headless Chrome에서 passphrase 경로만 확인).
+- Full rewrite clones: if someone regenerates every value, there are no canaries to find. We only make picking canaries out expensive.
+- Cross-field correlation (e.g. legal-dong code vs. province name) isn't learned. Neither are semantic rules like dates (`2003-02-31` can happen). An analyst who knows the correlations may spot canaries.
+- Dense keys: a unique field with no free space, like serial `1..N`, can't hold canaries. inspect warns and suggests publishing without that field.
+- EAV: a transform that splits one row's values across different arrays defeats the structural match path.
+- Time anchors: RFC 3161 TSA via CLI only. No OTS, no web anchor button, no relay. TSA chain verification is a manual openssl step.
+- WebAuthn PRF and Safari/Firefox are not yet tested in real browsers (only the passphrase path in headless Chrome).
 
-## 설계 문서
+## Design docs
 
-설계(규범), ADR 14개, 프로토콜 스펙, 위협 모델은 `docs/design/`에 있다(`docs/design/adr/`, `docs/design/protocol/`, `docs/design/THREAT-MODEL.md`, `docs/design/CORE-API.md`). 이 저장소의 현재 동작은 `CONTEXT.md`가 기준이다.
+English overview: `docs/DESIGN.md`. The original Korean design package (14 ADRs, 5 frozen protocols, architecture, threat model, API signatures) is in `docs/design/`, written on 2026-11-08. Reading order: `docs/design/README.md`. Current behavior: `CONTEXT.md`.
 
-## 설계 문서
+## License
 
-`docs/design/`에 설계 패키지(ADR 14개, 동결 프로토콜 5개, 아키텍처, 위협 모델, API 시그니처)가 있다. 설계 문서는 2026-11-08에 작성했고 구현은 2026-11-09에 했다. 읽는 순서는 `docs/design/README.md`.
-
-## 라이선스
-
-MIT OR Apache-2.0 (각 crate의 `Cargo.toml`).
+MIT OR Apache-2.0 (see each crate's `Cargo.toml`).

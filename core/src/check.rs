@@ -858,7 +858,7 @@ mod tests {
         let r = match_rows(br#"[{"x":330.5,"y":"1,200"}]"#, SuspectKind::Json, &rows, &m);
         assert_eq!(r.matched, vec![3]);
         // suspect number 330.50: string rule fails, but "330.5" parses as a number,
-        // so the number rule also applies (shape-v1 §7.1, WP-04 2차) -> matched
+        // so the number rule also applies (shape-v1 §7.1, WP-04 round 2) -> matched
         let r = match_rows(br#"[{"x":330.50,"y":"1,200"}]"#, SuspectKind::Json, &rows, &m);
         assert_eq!(r.matched, vec![3]);
         // a non-numeric Str only has the string rule

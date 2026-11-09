@@ -34,7 +34,7 @@ pub enum Format {
 /// `Num.text` is serde_json `Number::to_string()`: the mantissa exactly as
 /// written. `scale` is the number of digits after `.` (saturates at 255).
 /// A JSON number whose text has an exponent has no defined scale and is
-/// `Opaque` (shape-v1 §1.1, WP-01 "숫자 텍스트 정책").
+/// `Opaque` (shape-v1 §1.1, WP-01 "numeric text policy").
 #[derive(Debug, Clone, PartialEq)]
 pub enum Cell {
     Str(String),
@@ -890,7 +890,7 @@ mod tests {
         for needle in ["1.10", "512.0", "-0.5", "100000000000000000000", "2.00"] {
             assert!(contains(&out, needle.as_bytes()), "{needle}");
         }
-        // Exponent normalization accepted (spec "숫자 텍스트 정책"): 1e3 -> 1e+3.
+        // Exponent normalization accepted (spec "numeric text policy"): 1e3 -> 1e+3.
         assert!(contains(&out, b"\"e\": 1e+3"));
         assert!(!contains(&out, b"1e3"));
     }

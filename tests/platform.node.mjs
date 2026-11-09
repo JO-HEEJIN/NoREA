@@ -25,10 +25,11 @@ globalThis.window = globalThis;
 
 let passed = 0;
 const ok = (c, m) => { if (!c) { console.error('FAIL:', m); process.exit(1); } passed++; console.log('ok  ', m); };
-// platform-contract "에러" (2026-11-09 WP-06 후 확정): every contract error has one of these.
+// platform-contract "Errors" (fixed after WP-06, 2026-11-09): every contract error has one of these.
 const CODES = ['KEY_MISSING', 'KEY_EXISTS', 'BAD_PASSPHRASE', 'PRF_UNSUPPORTED', 'CANCELLED', 'BAD_INPUT', 'NO_MARKER',
   'CANARY_EXHAUSTED', 'BAD_EVIDENCE', 'BAD_DISCLOSURE', 'ANCHOR_UNAVAILABLE', 'BACKUP_INVALID'];
-const HANGUL = /[가-힣]/;
+// English message: has Latin letters and no Hangul syllables (U+AC00..U+D7A3).
+const ENGLISH = s => /[A-Za-z]/.test(s) && !/[\uAC00-\uD7A3]/.test(s);
 const seenErrors = [];
 /** Resolves to the thrown error (or null if nothing was thrown). */
 const thrown = async fn => { try { await fn(); return null; } catch (e) { seenErrors.push(e); return e; } };
@@ -81,7 +82,7 @@ ok(await hasCode(() => platform.setupKey({}), 'PRF_UNSUPPORTED'), 'setupKey with
     ok(await hasCode(() => platform.setupKey({}), 'CANCELLED'), 'passkey prompt cancelled (NotAllowedError) -> CANCELLED');
     stub(async () => ({ rawId: new Uint8Array(16).buffer, getClientExtensionResults: () => ({ prf: { enabled: false } }) }));
     const e = await hasCode(() => platform.setupKey({}), 'PRF_UNSUPPORTED');
-    ok(e && /고아|남습니다/.test(e.message), `authenticator without PRF -> PRF_UNSUPPORTED ("${e?.message}")`);
+    ok(e && /left unused/.test(e.message), `authenticator without PRF -> PRF_UNSUPPORTED ("${e?.message}")`);
     ok(!(await platform.hasKey()), 'failed PRF setups stored nothing');
   } finally {
     delete nav.credentials;
@@ -250,16 +251,16 @@ ok((await platform.check({ suspect: p.marked, evidenceJson: p.evidenceJson, pass
 
 // ---------------------------------------------------------------- 9. UI helpers (stubbed DOM)
 let confirmed = null; globalThis.confirm = m => { confirmed = m; return true; };
-ok((await platform.confirmAction('삭제할까요?')) === true && confirmed === '삭제할까요?', 'confirmAction -> window.confirm');
+ok((await platform.confirmAction('Delete?')) === true && confirmed === 'Delete?', 'confirmAction -> window.confirm');
 let saved = null;
 globalThis.document = { createElement: () => ({ click() { saved = { name: this.download, href: this.href }; } }) };
 await platform.saveFile('x.evidence.json', te.encode('{}'), 'application/json');
 ok(saved?.name === 'x.evidence.json' && saved.href.startsWith('blob:'), 'saveFile -> <a download> with a blob URL');
 
-// ---------------------------------------------------------------- 10. every error seen: Korean message, contract code, no secrets
+// ---------------------------------------------------------------- 10. every error seen: English message, contract code, no secrets
 const noCode = seenErrors.filter(x => !CODES.includes(x.code));
-ok(seenErrors.length > 0 && noCode.length === 0 && seenErrors.every(x => HANGUL.test(x.message)),
-  `all ${seenErrors.length} thrown errors have a Korean message and a contract code${noCode.length ? '; without: ' + noCode.map(x => x.message) : ''}`);
+ok(seenErrors.length > 0 && noCode.length === 0 && seenErrors.every(x => ENGLISH(x.message)),
+  `all ${seenErrors.length} thrown errors have an English message and a contract code${noCode.length ? '; without: ' + noCode.map(x => x.message) : ''}`);
 const used = [...new Set(seenErrors.map(x => x.code))].sort();
 ok(used.length === CODES.length, `every contract code was produced at least once: ${used.join(', ')}`);
 ok(seenErrors.every(x => !textHasSecret(`${x.message} ${x.detail ?? ''}`) && !/[/\\][\w.-]+[/\\]/.test(x.message) && !/\n\s+at /.test(x.message)),

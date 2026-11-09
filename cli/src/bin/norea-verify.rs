@@ -100,19 +100,18 @@ fn main() -> ExitCode {
 /// Anchor lines. `error` -> N/A; otherwise PASS/FAIL on `imprint_ok` (rfc3161, WP-08).
 fn anchor_lines(anchors: &[AnchorCheck], s: &mut String) {
     if anchors.is_empty() {
-        s.push_str("[N/A ] 시점 anchor / Time anchor: 없음 / none\n");
-        s.push_str("       이 증거는 생성 시점을 증명하지 않는다. / This evidence does not prove when it was created.\n");
+        s.push_str("[N/A ] Time anchor: none\n");
+        s.push_str("       This evidence does not prove when it was created.\n");
     }
     for (k, a) in anchors.iter().enumerate() {
         match &a.error {
-            Some(e) => s.push_str(&format!("[N/A ] anchor {k} ({}): 검증하지 않음 / not verified: {e}\n", a.kind)),
+            Some(e) => s.push_str(&format!("[N/A ] anchor {k} ({}): not verified: {e}\n", a.kind)),
             None => {
                 let t = a.gen_time.as_deref().unwrap_or("-");
                 s.push_str(&format!("[{}] anchor {k} ({}): imprint, genTime {t}\n", pass(a.imprint_ok), a.kind));
             }
         }
     }
-    s.push_str("       TSA 인증서 체인은 이 도구가 검증하지 않는다(chain_verified: false). --export-anchors DIR 후 openssl ts -verify로 직접 확인한다.\n");
     s.push_str("       The TSA certificate chain is not verified by this tool (chain_verified: false). Use --export-anchors DIR and openssl ts -verify.\n");
 }
 
@@ -130,14 +129,14 @@ fn cmd_evidence(path: &Path, json: bool) -> Result<u8, InputError> {
         return Ok(if ok { 0 } else { 1 });
     }
     let mut s = String::new();
-    s.push_str("NoREA evidence 검증 / evidence verification (norea.evidence.v1)\n");
+    s.push_str("NoREA evidence verification (norea.evidence.v1)\n");
     s.push_str(&format!("evidence_id: {}\n", ev.evidence_id));
-    s.push_str(&format!("[{}] 서명 / Signature (ML-DSA-65, fields)\n", pass(v.signature_ok)));
+    s.push_str(&format!("[{}] Signature (ML-DSA-65, fields)\n", pass(v.signature_ok)));
     s.push_str(&format!("[{}] evidence_id = SHA-256(payload)\n", pass(v.evidence_id_ok)));
-    s.push_str(&format!("[{}] canary blob 해시 / Canary blob hash\n", pass(v.blob_hash_ok)));
+    s.push_str(&format!("[{}] Canary blob hash\n", pass(v.blob_hash_ok)));
     anchor_lines(&v.anchors, &mut s);
-    s.push_str("       created_claim은 운영자 기기 시계의 주장이며 검증하지 않았다. / created_claim is an unverified operator clock claim.\n");
-    s.push_str(&format!("판정 / Verdict: {} (exit {})\n", pass(ok), if ok { 0 } else { 1 }));
+    s.push_str("       created_claim is an unverified operator clock claim.\n");
+    s.push_str(&format!("Verdict: {} (exit {})\n", pass(ok), if ok { 0 } else { 1 }));
     out(&s);
     Ok(if ok { 0 } else { 1 })
 }
@@ -189,28 +188,28 @@ fn cmd_disclosure(disc_path: &Path, suspect_path: &Path, export: Option<&Path>, 
 fn human_disclosure(r: &Value, code: u8) -> String {
     let e = &r["evidence"];
     let mut s = String::new();
-    s.push_str("NoREA disclosure 검증 / disclosure verification (norea.disclosure-report.v1)\n");
+    s.push_str("NoREA disclosure verification (norea.disclosure-report.v1)\n");
     s.push_str(&format!("evidence_id: {}\n\n", e["evidence_id"].as_str().unwrap_or("")));
     s.push_str("== 1. Evidence ==\n");
-    s.push_str(&format!("[{}] 서명 / Signature (ML-DSA-65, fields)\n", pass(get_bool(e, &["signature_ok"]))));
+    s.push_str(&format!("[{}] Signature (ML-DSA-65, fields)\n", pass(get_bool(e, &["signature_ok"]))));
     s.push_str(&format!("[{}] evidence_id = SHA-256(payload)\n", pass(get_bool(e, &["evidence_id_ok"]))));
-    s.push_str(&format!("[{}] canary blob 해시 / Canary blob hash\n", pass(get_bool(e, &["blob_hash_ok"]))));
+    s.push_str(&format!("[{}] Canary blob hash\n", pass(get_bool(e, &["blob_hash_ok"]))));
     let anchors: Vec<AnchorCheck> = serde_json::from_value(e["anchors"].clone()).unwrap_or_default();
-    s.push_str("\n== 2. 시점 anchor / Time anchors (검증된 anchor의 imprint 불일치는 FAIL / a checked anchor with a wrong imprint FAILs) ==\n");
+    s.push_str("\n== 2. Time anchors (a checked anchor with a wrong imprint FAILs) ==\n");
     anchor_lines(&anchors, &mut s);
 
     let n = get_u64(r, &["summary", "disclosed"]);
     let merkle = get_u64(r, &["summary", "merkle_ok"]);
     let matched = get_u64(r, &["summary", "matched"]);
     let not_rep = get_u64(r, &["summary", "not_reproduced"]);
-    s.push_str("\n== 3. 사본 / Suspect copy ==\n");
-    s.push_str(&format!("[{}] 사본 SHA-256 = suspect.sha256 / Suspect hash\n", pass(get_bool(r, &["suspect_hash_ok"]))));
-    s.push_str("\n== 4. 공개된 canary / Disclosed canaries ==\n");
+    s.push_str("\n== 3. Suspect copy ==\n");
+    s.push_str(&format!("[{}] Suspect SHA-256 = suspect.sha256\n", pass(get_bool(r, &["suspect_hash_ok"]))));
+    s.push_str("\n== 4. Disclosed canaries ==\n");
     s.push_str(&format!(
-        "[{}] Merkle path -> 서명된 canary_root / signed canary_root: {merkle}/{n}\n",
+        "[{}] Merkle path -> signed canary_root: {merkle}/{n}\n",
         pass(n >= 1 && merkle == n)
     ));
-    s.push_str(&format!("[{}] 사본에서 재현 / Reproduced in suspect: {matched}/{n}\n", pass(not_rep == 0)));
+    s.push_str(&format!("[{}] Reproduced in suspect: {matched}/{n}\n", pass(not_rep == 0)));
     for d in r["disclosed"].as_array().map(Vec::as_slice).unwrap_or_default() {
         let found: Vec<&str> =
             d["found"].as_array().map(|a| a.iter().filter_map(|x| x.as_str()).collect()).unwrap_or_default();
@@ -222,14 +221,14 @@ fn human_disclosure(r: &Value, code: u8) -> String {
             found.join(", ")
         ));
     }
-    s.push_str("\n== 5. 판정 / Verdict ==\n");
+    s.push_str("\n== 5. Verdict ==\n");
     s.push_str(&format!(
         "integrity_ok: {}, all_reproduced: {} -> {} (exit {code})\n",
         get_bool(r, &["verdict", "integrity_ok"]),
         get_bool(r, &["verdict", "all_reproduced"]),
         if code == 0 { "PASS" } else { "FAIL" }
     ));
-    s.push_str("\n== 6. Statement (verifier 생성 원문 / verbatim) ==\n");
+    s.push_str("\n== 6. Statement (verbatim, generated by the verifier) ==\n");
     s.push_str(r["statement"].as_str().unwrap_or(""));
     s.push('\n');
     s
@@ -250,11 +249,9 @@ fn export_anchors(disc: &str, dir: &Path) -> Result<String, InputError> {
     readme.push_str(&format!("evidence_id:    {}\nanchor_subject: {subject_hex}\n", ev.evidence_id));
     readme.push_str("subject.bin = anchor_subject, raw 32 bytes = SHA-256(signing payload || 0x0A || signature).\n\n");
     readme.push_str("norea-verify does not verify TSA certificate chains (chain_verified: false).\n");
-    readme.push_str("Verify each token yourself with the CA bundle published by that TSA.\n");
-    readme.push_str("이 도구는 TSA 인증서 체인을 검증하지 않는다. TSA가 공개한 CA bundle로 아래 명령을 직접 실행한다.\n\n");
+    readme.push_str("Verify each token yourself with the CA bundle published by that TSA, using the commands below.\n\n");
     if ev.anchors.is_empty() {
         readme.push_str("This evidence has no anchors: it does not prove when it was created.\n");
-        readme.push_str("이 증거에는 anchor가 없다. 생성 시점을 증명하지 않는다.\n");
     }
     for (k, a) in ev.anchors.iter().enumerate() {
         let (key, ext) = match a.kind.as_str() {
@@ -278,7 +275,7 @@ fn export_anchors(disc: &str, dir: &Path) -> Result<String, InputError> {
             ));
         } else {
             readme.push_str(&format!(
-                "anchor {k} (ots): {name}\n  OpenTimestamps 검증 명령은 WP-08에서 실제 proof로 확정한다. 이 파일은 proof 바이트 원본이다.\n"
+                "anchor {k} (ots): {name}\n  The OpenTimestamps verify command is not fixed yet (pending a real proof). This file is the raw proof bytes.\n"
             ));
         }
         files.push((name, bytes));

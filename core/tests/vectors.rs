@@ -1,7 +1,7 @@
 //! Frozen-format guard + cross-platform test vectors for `norea.evidence.v1`.
 //!
 //! tests/vectors/norea-evidence-v1.json pins, for the fixed inputs of
-//! Fable_5_1/tasks/specs/WP-03-evidence.md "동결 vector 입력": K_d, K_blob,
+//! Fable_5_1/tasks/specs/WP-03-evidence.md "frozen vector inputs" section: K_d, K_blob,
 //! markers, canaries, marked bytes, Merkle root, blob, the exact signing
 //! payload, evidence_id, anchor subject, verifying key hash and the full
 //! evidence (deterministic signature included).

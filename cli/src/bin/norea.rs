@@ -221,8 +221,7 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
         Err(Fail::Refused) => {
-            eprintln!("norea: refused: --key-file needs --i-know-this-is-for-testing.");
-            eprintln!("실제 키를 파일로 두지 마세요. 제품은 웹/앱의 custody를 씁니다.");
+            eprintln!("norea: refused: --key-file requires --i-know-this-is-for-testing.");
             eprintln!("Do not keep real keys in files. The product uses web/app custody.");
             ExitCode::from(2)
         }
@@ -420,7 +419,7 @@ fn cmd_anchor(evidence: &Path, tsa: &str) -> Result<(), Fail> {
     write_new(&out, format!("{json}\n").as_bytes())?;
     println!("wrote {}", out.display());
     println!("anchor {} (rfc3161): genTime {} from {tsa}", ev.anchors.len() - 1, tok.gen_time_rfc3339);
-    println!("TSA 인증서 체인은 검증하지 않았다 / TSA certificate chain not verified.");
+    println!("TSA certificate chain not verified.");
     Ok(())
 }
 

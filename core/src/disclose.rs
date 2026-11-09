@@ -201,18 +201,18 @@ fn probability_line(sum_x100: i64, m: usize, t: usize, records: Option<usize>, n
     let c = binom(m, t);
     let x = sum_x100 as f64 / 100.0 - (c as f64).log2();
     let mut line = format!(
-        "확률: 판정 기준(marker {m}개 중 {t}개) 아래 한 canary가 독립 레코드 하나와 우연히 일치할 확률의 생성기 모델 상한은 2^-{x:.2}(가장 약한 marker {t}개 기준, 조합 수 C({m},{t})={c} 반영)이다."
+        "Probability: under the match rule ({t} of {m} markers), the generator-model upper bound on one canary matching one independent record by chance is 2^-{x:.2} (weakest {t} markers, C({m},{t})={c} combinations)."
     );
     match records {
         Some(r) => {
             let y = n as f64 * r as f64 * 2f64.powf(-x);
             line.push_str(&format!(
-                " 사본 레코드 R={r}개와 canary n={n}개에 대한 우연 일치 기대 수 상한은 n·R·2^-X = {n}·{r}·2^-{x:.2} = {y:.3e}이다."
+                " Expected chance matches for R={r} suspect records and n={n} canaries: n*R*2^-X = {n}*{r}*2^-{x:.2} = {y:.3e}."
             ));
         }
-        None => line.push_str(" 사본은 텍스트 경로로 대조했으므로 레코드 수 불명이고 기대 수는 쓰지 않는다."),
+        None => line.push_str(" The suspect was matched on the text path, so its record count is unknown and no expected count is given."),
     }
-    line.push_str(" 이것은 생성기 모델 기준의 상한이지 실제 세계 확률이 아니다. 근거인 shape 정보는 운영자가 disclosure에 넣은 것이며 이 도구가 검증하지 않았다.");
+    line.push_str(" This is an upper bound under the generator model, not a real-world probability. The shape information it relies on was supplied by the operator in the disclosure and was not verified by this tool.");
     line
 }
 
@@ -235,31 +235,31 @@ fn statement(f: &Facts) -> String {
     let mut s: Vec<String> = Vec::new();
     let integrity = evidence_ok(ver) && suspect_hash_ok && merkle_ok == n && n > 0 && anchors_consistent(ver);
     if integrity {
-        s.push("무결성: PASS".into());
+        s.push("Integrity: PASS".into());
     } else {
         let mut why = Vec::new();
         if !evidence_ok(ver) {
-            why.push("증거(evidence) 검증 실패(서명, evidence_id 또는 blob 해시)");
+            why.push("evidence does not verify (signature, evidence_id or blob hash)");
         }
         if !suspect_hash_ok {
-            why.push("사본 해시 불일치");
+            why.push("suspect hash mismatch");
         }
         if merkle_ok < n {
-            why.push("Merkle 검증 실패 항목 있음");
+            why.push("some disclosed canaries fail Merkle verification");
         }
         if n == 0 {
-            why.push("공개된 canary 없음");
+            why.push("no disclosed canary");
         }
         if !anchors_consistent(ver) {
-            why.push("anchor imprint가 이 증거와 불일치");
+            why.push("an anchor imprint does not match this evidence");
         }
-        s.push(format!("무결성: FAIL ({}). 이 disclosure는 그대로 증거로 쓸 수 없다.", why.join(", ")));
+        s.push(format!("Integrity: FAIL ({}). This disclosure cannot be used as evidence as is.", why.join(", ")));
     }
     if ver.signature_ok {
         let fp = B64.decode(&ev.vk_b64).map(|vk| sha256_hex(&vk)[..16].to_string()).unwrap_or_default();
-        s.push(format!("서명: ML-DSA-65 서명이 유효하다. 공개키 지문(SHA-256(vk) 앞 16 hex): {fp}."));
+        s.push(format!("Signature: the ML-DSA-65 signature is valid. Public key fingerprint (first 16 hex of SHA-256(vk)): {fp}."));
     } else {
-        s.push("서명: 유효하지 않다.".into());
+        s.push("Signature: NOT valid.".into());
     }
     s.push(format!("evidence_id: {}", ev.evidence_id));
     let mut time_proven = false;
@@ -268,26 +268,26 @@ fn statement(f: &Facts) -> String {
             (Some(t), true) => {
                 time_proven = true;
                 s.push(format!(
-                    "시점: TSA 토큰의 genTime은 {t}이며 imprint가 서명된 증거와 일치한다. TSA 인증서 체인은 이 도구가 검증하지 않았다(disclosure-v1 §5)."
+                    "Time: TSA token genTime is {t} and its imprint matches the signed evidence. The TSA certificate chain was not verified by this tool (disclosure-v1 §5)."
                 ));
             }
             (Some(_), false) if a.error.is_none() => s.push(format!(
-                "시점: anchor {k}({})의 imprint가 이 증거의 anchor_subject와 일치하지 않는다. 다른 증거의 anchor다.",
+                "Time: the imprint of anchor {k} ({}) does not match this evidence's anchor_subject. It is another evidence's anchor.",
                 a.kind
             )),
-            _ => s.push(format!("시점: anchor {k}({})를 검증하지 못했다.", a.kind)),
+            _ => s.push(format!("Time: anchor {k} ({}) could not be verified.", a.kind)),
         }
     }
     if !time_proven {
-        s.push("시점: 이 증거는 생성 시점을 증명하지 않는다. created_claim은 운영자 기기 시계의 주장일 뿐이다.".into());
+        s.push("Time: This evidence does not prove when it was created. created_claim is only a claim from the operator's device clock.".into());
     }
     s.push(if suspect_hash_ok {
-        "사본: SHA-256이 disclosure의 suspect.sha256과 일치한다.".into()
+        "Suspect: SHA-256 matches suspect.sha256 in the disclosure.".into()
     } else {
-        "사본: SHA-256이 disclosure의 suspect.sha256과 일치하지 않는다. 제출된 사본이 아니다.".into()
+        "Suspect: SHA-256 does NOT match suspect.sha256 in the disclosure. This is not the submitted copy.".into()
     });
-    s.push(format!("Merkle: 공개된 canary {n}개 중 {merkle_ok}개의 path가 서명된 canary_root와 일치한다."));
-    s.push(format!("재현: 공개된 canary {n}개 중 {matched}개가 사본에서 재현되었다."));
+    s.push(format!("Merkle: {merkle_ok} of {n} disclosed canaries have a path matching the signed canary_root."));
+    s.push(format!("Reproduced: {matched} of {n} disclosed canaries were reproduced in the suspect copy."));
     if !not_reproduced.is_empty() {
         let l: Vec<String> = not_reproduced.iter().map(|i| i.to_string()).collect();
         s.push(format!("NOT REPRODUCED: index {}", l.join(", ")));
@@ -295,13 +295,13 @@ fn statement(f: &Facts) -> String {
     if let Some((sum, m, t)) = bound {
         s.push(probability_line(sum, m, t, records, ev.canary_count));
     }
-    s.push("주장: suspect의 *_claim 필드(출처, 포착 시점, 방법)는 운영자 주장이며 이 도구가 검증하지 않았다.".into());
+    s.push("Claims: the suspect's *_claim fields (source, capture time, method) are operator claims and were not verified by this tool.".into());
     s.join("\n")
 }
 
 /// §4, no secret. Structural problems (not JSON, wrong schema, malformed
 /// fields, indices not ascending/unique) are `BadDisclosure`. Verification
-/// failures are reported: evidence failure makes the statement `무결성: FAIL`.
+/// failures are reported: evidence failure makes the statement `Integrity: FAIL`.
 /// Returns `norea.disclosure-report.v1` JSON.
 pub fn verify_disclosure(disclosure_json: &str, suspect: &[u8]) -> Result<String, Error> {
     let d: Value = serde_json::from_str(disclosure_json).map_err(|_| bad_disclosure("disclosure is not JSON"))?;

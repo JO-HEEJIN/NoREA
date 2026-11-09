@@ -28,7 +28,7 @@ const te = new TextEncoder();
 const state = {
   caps: null,
   info: null,
-  input: null,          // {name, bytes} for 보호하기
+  input: null,          // {name, bytes} for Protect
   ins: null,            // InspectResult
   protected: null,      // {marked, evidenceJson, names}
   lastCheck: null,      // {suspect, suspectName, evidenceJson, evidenceName, report, view}
@@ -45,14 +45,14 @@ function setError(id, e, opts) {
   const box = clear($(id));
   box.append(el('p', { class: 'err', text: v.message }));
   if (v.hint) box.append(el('p', { class: 'hint', text: v.hint }));
-  if (v.detail) box.append(el('details', {}, el('summary', { text: '자세히' }), el('code', { text: v.detail })));
+  if (v.detail) box.append(el('details', {}, el('summary', { text: 'Details' }), el('code', { text: v.detail })));
   return v;
 }
 /** Runs an action with the button disabled and errors shown in `msgId`. */
 async function run(btn, msgId, opts, fn) {
   btn.disabled = true;
   $(msgId).setAttribute('aria-busy', 'true');
-  setStatus(msgId, '처리 중입니다.');
+  setStatus(msgId, 'Working.');
   try {
     await fn();
   } catch (e) {
@@ -62,7 +62,7 @@ async function run(btn, msgId, opts, fn) {
     $(msgId).removeAttribute('aria-busy');
   }
 }
-/** Reads a password input and clears it immediately (platform-contract 비밀 처리 규칙 4). */
+/** Reads a password input and clears it immediately (platform-contract secret handling rule 4). */
 function takeSecret(id) {
   const input = $(id);
   const v = input.value;
@@ -83,7 +83,7 @@ async function fileText(input) {
 }
 function resultList(items) {
   return el('ul', { class: 'result-list' }, ...items.map(it => el('li', {},
-    el('span', { class: `badge ${it.status === 'N/A' ? 'NA' : it.status}`, text: it.status === 'NOTE' ? '참고' : it.status }),
+    el('span', { class: `badge ${it.status === 'N/A' ? 'NA' : it.status}`, text: it.status === 'NOTE' ? 'NOTE' : it.status }),
     el('span', { text: it.text }))));
 }
 function fillList(ul, texts) {
@@ -117,7 +117,7 @@ document.querySelector('[role="tablist"]').addEventListener('keydown', ev => {
   selectTab(TABS[j], true);
 });
 
-// ---------------------------------------------------------------- 1. 서명키
+// ---------------------------------------------------------------- 1. Signing key
 async function refreshKey() {
   state.info = (await platform.hasKey()) ? await platform.keyInfo() : null;
   const ks = T.keyStatus(state.caps, state.info);
@@ -133,14 +133,14 @@ async function refreshKey() {
   $('key-delete-confirm').checked = false;
   $('key-delete').disabled = true;
   setStatus('app-status', state.info
-    ? `준비되었습니다. 서명키 지문 ${state.info.fingerprint}.`
-    : "준비되었습니다. 먼저 '서명키' 탭에서 서명키를 만드세요. 검증하기 탭은 키 없이 쓸 수 있습니다.");
+    ? `Ready. Signing key fingerprint ${state.info.fingerprint}.`
+    : "Ready. No key yet: create one in the 'Signing key' tab. The 'Verify' tab works without one.");
 }
 
 async function afterSetup(backup) {
   await platform.saveFile(T.KEY_BACKUP_NAME, backup, 'application/json');
   await refreshKey();
-  setStatus('key-msg', `서명키를 만들었고 백업 파일(${T.KEY_BACKUP_NAME})을 내려받았습니다. 이 파일을 안전한 곳에 보관하세요.`);
+  setStatus('key-msg', `Signing key created and backup file (${T.KEY_BACKUP_NAME}) downloaded. Keep that file somewhere safe.`);
 }
 
 $('key-create-passkey').addEventListener('click', ev => run(ev.currentTarget, 'key-msg', { ctx: 'key' }, async () => {
@@ -169,7 +169,7 @@ $('key-create-pass').addEventListener('click', ev => run(ev.currentTarget, 'key-
   p2 = undefined;
   let backup;
   try {
-    setStatus('key-msg', '키를 만드는 중입니다. passphrase에서 키를 유도하는 데 몇 초 걸릴 수 있습니다.');
+    setStatus('key-msg', 'Creating the key. Deriving it from the passphrase can take a few seconds.');
     backup = await platform.setupKey({ passphrase: p1 });
   } finally {
     p1 = undefined;
@@ -179,7 +179,7 @@ $('key-create-pass').addEventListener('click', ev => run(ev.currentTarget, 'key-
 
 $('key-backup').addEventListener('click', ev => run(ev.currentTarget, 'key-msg', { ctx: 'key' }, async () => {
   await platform.saveFile(T.KEY_BACKUP_NAME, await platform.exportBackup(), 'application/json');
-  setStatus('key-msg', `백업 파일(${T.KEY_BACKUP_NAME})을 내려받았습니다.`);
+  setStatus('key-msg', `Backup file (${T.KEY_BACKUP_NAME}) downloaded.`);
 }));
 
 $('key-delete-confirm').addEventListener('change', ev => { $('key-delete').disabled = !ev.currentTarget.checked; });
@@ -187,30 +187,30 @@ $('key-delete').addEventListener('click', async ev => {
   const btn = ev.currentTarget;
   await run(btn, 'key-msg', { ctx: 'key' }, async () => {
     const yes = await platform.confirmAction(
-      `이 브라우저에서 서명키를 삭제합니다. ${T.TEXT.keyLoss} 백업 파일을 보관했다면 확인을 누르세요.`);
-    if (!yes) { setStatus('key-msg', '삭제를 취소했습니다.'); return; }
+      `This deletes the signing key from this browser. ${T.TEXT.keyLoss} Press OK only if you have kept the backup file.`);
+    if (!yes) { setStatus('key-msg', 'Delete cancelled.'); return; }
     await platform.deleteKey();
     await refreshKey();
-    setStatus('key-msg', '이 브라우저에서 서명키를 삭제했습니다.');
+    setStatus('key-msg', 'Signing key deleted from this browser.');
   });
   btn.disabled = !$('key-delete-confirm').checked;
 });
 
 $('key-restore').addEventListener('click', ev => run(ev.currentTarget, 'key-msg', { ctx: 'key' }, async () => {
   const f = await fileBytes($('key-restore-file'));
-  if (!f) { setStatus('key-msg', '복원할 백업 파일을 고르세요.'); return; }
+  if (!f) { setStatus('key-msg', 'Select a backup file to restore.'); return; }
   if (await platform.hasKey()) {
     const yes = await platform.confirmAction(
-      '이 브라우저에 이미 서명키가 있습니다. 백업으로 복원하면 지금 키를 덮어쓰고, 지금 키의 백업이 없으면 그 키는 사라집니다. 계속할까요?');
-    if (!yes) { setStatus('key-msg', '복원을 취소했습니다.'); return; }
+      'This browser already has a signing key. Restoring overwrites it, and without a backup of the current key that key is gone. Continue?');
+    if (!yes) { setStatus('key-msg', 'Restore cancelled.'); return; }
   }
   await platform.importBackup(f.bytes);
   $('key-restore-file').value = '';
   await refreshKey();
-  setStatus('key-msg', '백업에서 서명키를 복원했습니다. 공개키 지문이 예전과 같은지 확인하세요.');
+  setStatus('key-msg', 'Signing key restored from backup. Check that the public key fingerprint is the one you expect.');
 }));
 
-// ---------------------------------------------------------------- 2. 보호하기
+// ---------------------------------------------------------------- 2. Protect
 function selectedMarkers() {
   return [...document.querySelectorAll('#protect-fields input[type=checkbox]')].filter(c => c.checked).map(c => c.dataset.field);
 }
@@ -220,7 +220,7 @@ function renderInspect(ins) {
   const forced = $('protect-format').value;
   const detected = clear($('protect-detected'));
   detected.append(el('span', {
-    text: `${forced ? '지정한' : '감지된'} 형식: ${T.formatText(ins.format)}, 행 ${ins.rows}개, 필드 ${ins.fields.length}개. 형식이 틀리면 위 '입력 형식'에서 바꾸세요.`,
+    text: `${forced ? 'Chosen' : 'Detected'} format: ${T.formatText(ins.format)}, ${ins.rows} rows, ${ins.fields.length} fields. If the format is wrong, change 'Input format' above.`,
   }));
   $('protect-json-note').textContent = T.TEXT.jsonReserialize;
   show($('protect-json-note'), ins.format === 'json');
@@ -229,9 +229,9 @@ function renderInspect(ins) {
   fillList($('protect-general-warnings'), [...(nameWarn ? [T.TEXT.jsonNameButCsv] : []), ...T.generalWarnings(ins)]);
 
   const rows = T.inspectRows(ins);
-  const COLS = ['marker', '필드', 'kind', 'unique', '서로 다른 값', '결측'];
+  const COLS = ['marker', 'field', 'kind', 'unique', 'distinct', 'missing'];
   const table = el('table', { class: 'fields' },
-    el('caption', { class: 'sr-only', text: '필드 분석 결과. marker 열의 체크 상자로 대조에 쓸 필드를 고릅니다. 경고는 해당 필드 아래 줄에 있습니다.' }),
+    el('caption', { class: 'sr-only', text: 'Field analysis. Use the checkboxes in the marker column to choose the fields used for matching. Warnings appear in the row below each field.' }),
     el('thead', {}, el('tr', {}, ...COLS.map(h => el('th', { scope: 'col', text: h })))));
   const body = el('tbody');
   rows.forEach((r, i) => {
@@ -239,7 +239,7 @@ function renderInspect(ins) {
     const box = el('input', { type: 'checkbox', id, checked: r.checked, disabled: !r.eligible });
     box.dataset.field = r.name;
     box.addEventListener('change', updateThreshold);
-    const lab = el('label', { for: id, class: 'sr-only', text: r.eligible ? `${r.name} 필드를 marker로 사용` : `${r.name} 필드는 marker로 쓸 수 없음(${r.kind})` });
+    const lab = el('label', { for: id, class: 'sr-only', text: r.eligible ? `Use field ${r.name} as a marker` : `Field ${r.name} cannot be a marker (${r.kind})` });
     body.append(el('tr', { class: r.warnings.length ? 'has-warn' : null },
       el('td', {}, box, lab),
       el('th', { scope: 'row', text: r.name }),
@@ -274,12 +274,12 @@ async function runInspect() {
   if (!state.input) return;
   const forcedJson = $('protect-format').value === 'json';
   const jsonName = $('protect-format').value === '' && /\.json$/i.test(state.input.name);
-  setStatus('protect-msg', '파일을 분석하는 중입니다.');
+  setStatus('protect-msg', 'Analyzing the file.');
   try {
     const ins = await platform.inspect({ input: state.input.bytes, format: $('protect-format').value || undefined });
     state.ins = ins;
     renderInspect(ins);
-    setStatus('protect-msg', '분석을 마쳤습니다. marker와 옵션을 확인한 뒤 보호하기를 누르세요.');
+    setStatus('protect-msg', 'Analysis done. Review the markers and options, then press Protect.');
   } catch (e) {
     setError('protect-msg', e, { ctx: 'protect', forcedJson, jsonName });
   }
@@ -295,7 +295,7 @@ $('protect-format').addEventListener('change', runInspect);
 
 $('protect-run').addEventListener('click', ev => run(ev.currentTarget, 'protect-msg', () => ({ ctx: 'protect', forcedJson: $('protect-format').value === 'json' }), async () => {
   show($('protect-result'), false);
-  if (!state.input || !state.ins) { setStatus('protect-msg', '먼저 데이터 파일을 고르세요.'); return; }
+  if (!state.input || !state.ins) { setStatus('protect-msg', 'Select a data file first.'); return; }
   const datasetId = $('protect-dsid').value;
   const markers = selectedMarkers();
   const problem = T.datasetIdProblem(datasetId) ?? T.canaryCountProblem($('protect-n').value) ?? T.markerProblem(markers);
@@ -305,7 +305,7 @@ $('protect-run').addEventListener('click', ev => run(ev.currentTarget, 'protect-
   let passphrase = needsPassphrase() ? takeSecret('protect-pass') : undefined;
   let r;
   try {
-    setStatus('protect-msg', 'canary를 만들고 서명하는 중입니다.');
+    setStatus('protect-msg', 'Generating canaries and signing.');
     r = await platform.protect({
       input: state.input.bytes, format: $('protect-format').value || undefined, datasetId,
       n: Number($('protect-n').value), markerFields: markers, exclusions, passphrase,
@@ -318,38 +318,38 @@ $('protect-run').addEventListener('click', ev => run(ev.currentTarget, 'protect-
   state.protected = { marked: r.marked, evidenceJson: r.evidenceJson, names };
   const sum = clear($('protect-summary'));
   for (const line of [
-    `원본 행 ${s.rows}개에 canary ${s.canaries}개를 넣었습니다(형식 ${T.formatText(s.format)}).`,
-    `marker: ${s.markers.join(', ')} (한 레코드에서 ${s.threshold}개 이상 발견되면 일치)`,
-    `exclusions: ${exclusions.length}개 값`,
+    `Inserted ${s.canaries} canaries into ${s.rows} original rows (format ${T.formatText(s.format)}).`,
+    `marker: ${s.markers.join(', ')} (matched when ${s.threshold} or more are found in one record)`,
+    `exclusions: ${exclusions.length} values`,
     `evidence_id: ${s.evidenceId}`,
-    `marked 파일: ${names.marked}`,
-    `evidence 파일: ${names.evidence}`,
+    `marked file: ${names.marked}`,
+    `evidence file: ${names.evidence}`,
   ]) sum.append(el('p', { text: line }));
   show($('protect-result'), true);
-  setStatus('protect-msg', '보호를 마쳤습니다. 아래에서 두 파일을 내려받으세요.');
+  setStatus('protect-msg', 'Protected. Download both files below.');
 }));
 
 $('protect-save-marked').addEventListener('click', ev => run(ev.currentTarget, 'protect-msg', { ctx: 'protect' }, async () => {
   const p = state.protected;
   await platform.saveFile(p.names.marked, p.marked, p.names.markedMime);
-  setStatus('protect-msg', `${p.names.marked}을(를) 내려받았습니다. 이 파일을 공개하세요.`);
+  setStatus('protect-msg', `Downloaded ${p.names.marked}. This is the file to publish.`);
 }));
 $('protect-save-evidence').addEventListener('click', ev => run(ev.currentTarget, 'protect-msg', { ctx: 'protect' }, async () => {
   const p = state.protected;
   await platform.saveFile(p.names.evidence, te.encode(p.evidenceJson), 'application/json');
-  setStatus('protect-msg', `${p.names.evidence}을(를) 내려받았습니다. 이 파일은 공개하지 말고 보관하세요.`);
+  setStatus('protect-msg', `Downloaded ${p.names.evidence}. Keep this file private.`);
 }));
 
-// ---------------------------------------------------------------- 3. 대조하기
+// ---------------------------------------------------------------- 3. Check
 $('check-run').addEventListener('click', ev => run(ev.currentTarget, 'check-msg', { ctx: 'check' }, async () => {
   show($('check-result'), false);
   const suspect = await fileBytes($('check-suspect'));
   const evidence = await fileText($('check-evidence'));
-  if (!suspect || !evidence) { setStatus('check-msg', '의심 사본과 evidence 파일을 모두 고르세요.'); return; }
+  if (!suspect || !evidence) { setStatus('check-msg', 'Select both the suspicious copy and the evidence file.'); return; }
   let passphrase = needsPassphrase() ? takeSecret('check-pass') : undefined;
   let report;
   try {
-    setStatus('check-msg', '서명키로 canary를 열어 사본에서 찾는 중입니다.');
+    setStatus('check-msg', 'Opening canaries with the signing key and searching the copy.');
     report = await platform.check({ suspect: suspect.bytes, evidenceJson: evidence.text, passphrase });
   } finally {
     passphrase = undefined;
@@ -361,8 +361,8 @@ $('check-run').addEventListener('click', ev => run(ev.currentTarget, 'check-msg'
   $('check-partial-note').textContent = v.partialNote ?? '';
   show($('check-partial-note'), !!v.partialNote);
   const table = el('table', {},
-    el('caption', { class: 'sr-only', text: 'canary별 대조 결과' }),
-    el('thead', {}, el('tr', {}, ...['index', '결과', '발견된 marker', '사본 안 위치'].map(h => el('th', { scope: 'col', text: h })))),
+    el('caption', { class: 'sr-only', text: 'Check result per canary' }),
+    el('thead', {}, el('tr', {}, ...['index', 'result', 'markers found', 'location in copy'].map(h => el('th', { scope: 'col', text: h })))),
     el('tbody', {}, ...v.rows.map(r => el('tr', {},
       el('td', { text: String(r.index) }), el('td', { text: r.status }), el('td', { text: r.found }), el('td', { text: r.hint })))));
   clear($('check-table')).append(table);
@@ -373,17 +373,17 @@ $('check-run').addEventListener('click', ev => run(ev.currentTarget, 'check-msg'
   show($('check-result'), true);
   state.lastCheck = { suspect: suspect.bytes, suspectName: suspect.name, evidenceJson: evidence.text, evidenceName: evidence.name, report, view: v };
   renderDisclose();
-  setStatus('check-msg', `대조를 마쳤습니다. ${v.countsText}`);
+  setStatus('check-msg', `Check done. ${v.countsText}`);
 }));
 
 $('check-save-report').addEventListener('click', ev => run(ev.currentTarget, 'check-msg', { ctx: 'check' }, async () => {
   const c = state.lastCheck;
   const name = T.checkReportName(c.evidenceName);
   await platform.saveFile(name, te.encode(`${JSON.stringify(c.report, null, 2)}\n`), 'application/json');
-  setStatus('check-msg', `${name}을(를) 내려받았습니다.`);
+  setStatus('check-msg', `Downloaded ${name}.`);
 }));
 
-// ---------------------------------------------------------------- 4. 공개 패키지 만들기
+// ---------------------------------------------------------------- 4. Disclose
 function renderDisclose() {
   const c = state.lastCheck;
   show($('disclose-result'), false);
@@ -391,15 +391,15 @@ function renderDisclose() {
   const matched = c?.view.matchedIndices ?? [];
   if (!c || matched.length === 0) {
     $('disclose-empty').textContent = c
-      ? '마지막 대조에서 일치한 canary가 없어 공개 패키지를 만들 수 없습니다.'
-      : "먼저 '대조하기' 탭에서 대조를 마치세요. 일치한 canary가 있어야 공개 패키지를 만들 수 있습니다.";
+      ? 'The last check matched no canaries, so there is nothing to disclose. Which is good news, probably.'
+      : "Nothing to disclose yet. Run a check in the 'Check' tab first; a disclosure package needs at least one matched canary.";
     show($('disclose-empty'), true);
     show($('disclose-form'), false);
     return;
   }
   show($('disclose-empty'), false);
   const src = clear($('disclose-source'));
-  src.append(el('span', { text: `마지막 대조: 사본 ${c.suspectName}, evidence ${c.evidenceName}, 일치 ${matched.length}개` }));
+  src.append(el('span', { text: `Last check: copy ${c.suspectName}, evidence ${c.evidenceName}, ${matched.length} matched` }));
   const grid = clear($('disclose-indices'));
   for (const i of matched) {
     const id = `disclose-idx-${i}`;
@@ -413,9 +413,9 @@ function renderDisclose() {
 $('disclose-run').addEventListener('click', ev => run(ev.currentTarget, 'disclose-msg', { ctx: 'disclose' }, async () => {
   show($('disclose-result'), false);
   const c = state.lastCheck;
-  if (!c) { setStatus('disclose-msg', "먼저 '대조하기' 탭에서 대조를 마치세요."); return; }
+  if (!c) { setStatus('disclose-msg', "Run a check in the 'Check' tab first."); return; }
   const indices = [...document.querySelectorAll('#disclose-indices input[type=checkbox]')].filter(b => b.checked).map(b => Number(b.dataset.index));
-  if (indices.length === 0) { setStatus('disclose-msg', '공개할 canary를 1개 이상 고르세요.'); return; }
+  if (indices.length === 0) { setStatus('disclose-msg', 'Select at least 1 canary to disclose.'); return; }
   const suspectMeta = {
     sourceClaim: $('disclose-source-claim').value.trim(),
     capturedClaim: $('disclose-captured-claim').value.trim(),
@@ -424,24 +424,24 @@ $('disclose-run').addEventListener('click', ev => run(ev.currentTarget, 'disclos
   let passphrase = needsPassphrase() ? takeSecret('disclose-pass') : undefined;
   let out;
   try {
-    setStatus('disclose-msg', '공개 패키지를 만드는 중입니다.');
+    setStatus('disclose-msg', 'Building the disclosure package.');
     out = await platform.disclose({ evidenceJson: c.evidenceJson, suspect: c.suspect, indices, suspectMeta, passphrase });
   } finally {
     passphrase = undefined;
   }
   state.disclosureJson = out.disclosureJson;
-  $('disclose-summary').textContent = `canary ${indices.length}개를 공개하는 패키지를 만들었습니다(index ${indices.join(', ')}). 파일 이름: ${T.disclosureName(c.evidenceName)}`;
+  $('disclose-summary').textContent = `Built a package disclosing ${indices.length} canaries (index ${indices.join(', ')}). File name: ${T.disclosureName(c.evidenceName)}`;
   show($('disclose-result'), true);
-  setStatus('disclose-msg', '공개 패키지를 만들었습니다. 아래에서 내려받으세요.');
+  setStatus('disclose-msg', 'Disclosure package built. Download it below.');
 }));
 
 $('disclose-save').addEventListener('click', ev => run(ev.currentTarget, 'disclose-msg', { ctx: 'disclose' }, async () => {
   const name = T.disclosureName(state.lastCheck.evidenceName);
   await platform.saveFile(name, te.encode(state.disclosureJson), 'application/json');
-  setStatus('disclose-msg', `${name}을(를) 내려받았습니다. 사본 파일(${state.lastCheck.suspectName})과 함께 제출하세요.`);
+  setStatus('disclose-msg', `Downloaded ${name}. Submit it together with the copy file (${state.lastCheck.suspectName}).`);
 }));
 
-// ---------------------------------------------------------------- 5. 검증하기 (no key)
+// ---------------------------------------------------------------- 5. Verify (no key)
 function renderVerify(view, verdictText) {
   const h = $('verify-verdict');
   h.textContent = verdictText;
@@ -459,21 +459,21 @@ function renderVerify(view, verdictText) {
 $('verify-run').addEventListener('click', ev => run(ev.currentTarget, 'verify-msg', { ctx: 'verify' }, async () => {
   show($('verify-result'), false);
   const doc = await fileText($('verify-doc'));
-  if (!doc) { setStatus('verify-msg', 'evidence 또는 공개 패키지 파일을 고르세요.'); return; }
+  if (!doc) { setStatus('verify-msg', 'Select an evidence or disclosure package file. Nothing to verify yet.'); return; }
   const kind = T.docKind(doc.text);
   try {
     if (kind === 'disclosure') {
       const suspect = await fileBytes($('verify-suspect'));
-      if (!suspect) { setStatus('verify-msg', '공개 패키지를 검증하려면 함께 제출된 사본 파일도 고르세요.'); return; }
+      if (!suspect) { setStatus('verify-msg', 'To verify a disclosure package, also select the copy file submitted with it.'); return; }
       const view = T.disclosureSections(await platform.verifyDisclosure(doc.text, suspect.bytes));
-      renderVerify(view, `판정: ${view.pass ? 'PASS' : 'FAIL'} (공개 패키지 ${doc.name})`);
+      renderVerify(view, `Verdict: ${view.pass ? 'PASS' : 'FAIL'} (disclosure package ${doc.name})`);
     } else {
       const view = T.evidenceSections(await platform.verifyEvidence(doc.text));
-      renderVerify(view, `판정: ${view.pass ? 'PASS' : 'FAIL'} (evidence ${doc.name})`);
+      renderVerify(view, `Verdict: ${view.pass ? 'PASS' : 'FAIL'} (evidence ${doc.name})`);
     }
-    setStatus('verify-msg', '검증을 마쳤습니다.');
+    setStatus('verify-msg', 'Verification done.');
   } catch (e) {
-    renderVerify(null, '판정: 구조 오류. 이 파일은 검증할 수 없습니다.');
+    renderVerify(null, 'Verdict: structural error. This file cannot be verified.');
     throw e;
   }
 }));

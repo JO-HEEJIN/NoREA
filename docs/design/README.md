@@ -1,12 +1,12 @@
-# 설계 문서 (design)
+# Design documents
 
-이 디렉토리는 NoREA의 설계 패키지 사본이다. 설계 문서는 2026-11-08에 작성됐고, 구현(`core/`, `cli/`, `web/`)은 2026-11-09에 이 설계대로 만들었다.
+Everything under `docs/design/` is the original design package, in Korean, written on 2026-11-08. The code (`core/`, `cli/`, `web/`) was built from it on 2026-11-09. Don't read Korean? `../DESIGN.md` is the English overview. Same facts, fewer words.
 
-- `ARCHITECTURE.md` 계층, 데이터 파이프라인, 신뢰 경계, 플랫폼 매트릭스, 성능 예산, 한계
-- `THREAT-MODEL.md` 자산, 공격자, 대응, 테스트로 옮긴 항목
-- `CORE-API.md` noreacore / norea-web / CLI 시그니처
-- `SOURCES.md` 출처(재확인 여부 표시)
-- `protocol/` 동결된 포맷 5개: `evidence-v1`(norea.evidence.v1), `canary-record-shape-v1`(생성기와 대조 규칙), `disclosure-v1`(분쟁 제출 패키지와 제3자 검증), `custody-web-v1`(웹 키 보관과 백업), `platform-contract`(UI와 플랫폼 계약 17개)
-- `adr/` 결정 기록 14개(과거 시제, 불변)
+- `ARCHITECTURE.md`: layers, data pipeline, trust boundary, platform matrix, performance budget, limits
+- `THREAT-MODEL.md`: assets, attackers, mitigations, what got turned into tests
+- `CORE-API.md`: noreacore / norea-web / CLI signatures
+- `SOURCES.md`: sources, marked with whether they were re-checked
+- `protocol/`: the five frozen formats. `evidence-v1` (norea.evidence.v1), `canary-record-shape-v1` (generator and match rules), `disclosure-v1` (dispute package and third-party verification), `custody-web-v1` (web key custody and backup), `platform-contract` (the 17-function UI/platform contract)
+- `adr/`: 14 decision records. Past tense, never edited
 
-동결 vector는 `../../tests/vectors/`에 있다. 문서의 WP 번호는 구현 작업 단위(WP-00~WP-11)를 가리킨다.
+Frozen vectors are in `../../tests/vectors/`. WP numbers in the docs are implementation work packages (WP-00 to WP-11).

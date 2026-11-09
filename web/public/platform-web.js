@@ -25,15 +25,15 @@ export const CONTRACT = ['ready', 'capabilities', 'hasKey', 'keyInfo', 'setupKey
 // ---------------------------------------------------------------- errors
 // core ErrorCode (or ANCHOR_UNAVAILABLE) -> [contract code, Korean message]
 const CORE_ERRORS = {
-  BadInput: ['BAD_INPUT', '입력 파일이나 옵션이 올바르지 않습니다.'],
-  NoMarker: ['NO_MARKER', '대조에 쓸 marker 필드를 정할 수 없습니다. marker 필드를 직접 고르세요.'],
-  CanaryExhausted: ['CANARY_EXHAUSTED', '이 데이터에서는 요청한 수만큼 canary를 만들 수 없습니다. 개수를 줄이거나 다른 marker를 고르세요.'],
-  BadEvidence: ['BAD_EVIDENCE', 'evidence 파일이 올바르지 않거나 변조되었습니다.'],
-  BadSignature: ['BAD_EVIDENCE', '서명을 만들거나 확인하지 못했습니다.'],
-  BadBlob: ['BAD_EVIDENCE', '이 키로 evidence의 canary를 열 수 없습니다. 키가 다르거나 evidence가 변조되었습니다.'],
-  BadDisclosure: ['BAD_DISCLOSURE', 'disclosure 요청이나 파일이 올바르지 않습니다.'],
-  BadAnchor: ['BAD_EVIDENCE', 'anchor가 올바르지 않습니다.'],
-  ANCHOR_UNAVAILABLE: ['ANCHOR_UNAVAILABLE', '시점 anchor는 아직 지원하지 않습니다.'],
+  BadInput: ['BAD_INPUT', 'The input file or options are invalid.'],
+  NoMarker: ['NO_MARKER', 'No marker fields could be chosen for matching. Pick marker fields yourself.'],
+  CanaryExhausted: ['CANARY_EXHAUSTED', 'This data cannot hold the requested number of canaries. Lower the count or pick different markers.'],
+  BadEvidence: ['BAD_EVIDENCE', 'The evidence file is invalid or was tampered with.'],
+  BadSignature: ['BAD_EVIDENCE', 'The signature could not be created or checked.'],
+  BadBlob: ['BAD_EVIDENCE', 'The canaries in this evidence cannot be opened with this key. Wrong key, or the evidence was tampered with.'],
+  BadDisclosure: ['BAD_DISCLOSURE', 'The disclosure request or file is invalid.'],
+  BadAnchor: ['BAD_EVIDENCE', 'The anchor is invalid.'],
+  ANCHOR_UNAVAILABLE: ['ANCHOR_UNAVAILABLE', 'Time anchors are not supported yet.'],
 };
 
 function platformError(code, message, detail) {
@@ -55,7 +55,7 @@ function normalize(e) {
     const [code, ko] = CORE_ERRORS[m[1]];
     return platformError(code, ko, `${m[1]}: ${m[2]}`);
   }
-  return platformError(null, '처리 중 예상하지 못한 오류가 발생했습니다.');
+  return platformError(null, 'An unexpected error occurred during processing.');
 }
 const guard = fn => async (...args) => {
   try { return await fn(...args); } catch (e) { throw normalize(e); }
@@ -63,29 +63,29 @@ const guard = fn => async (...args) => {
 
 // ---------------------------------------------------------------- argument checks
 function bytes(x, what) {
-  if (!(x instanceof Uint8Array)) throw badInput(`${what}은(는) 파일 바이트(Uint8Array)여야 합니다.`);
+  if (!(x instanceof Uint8Array)) throw badInput(`${what} must be file bytes (Uint8Array).`);
   return x;
 }
 function text(x, what) {
-  if (typeof x !== 'string') throw badInput(`${what}은(는) 문자열이어야 합니다.`);
+  if (typeof x !== 'string') throw badInput(`${what} must be a string.`);
   return x;
 }
 function evidenceText(x) {
-  if (typeof x !== 'string') throw badEvidence('evidence는 JSON 문자열이어야 합니다.');
+  if (typeof x !== 'string') throw badEvidence('evidence must be a JSON string.');
   return x;
 }
 function disclosureText(x) {
-  if (typeof x !== 'string') throw badDisclosure('disclosure는 JSON 문자열이어야 합니다.');
+  if (typeof x !== 'string') throw badDisclosure('disclosure must be a JSON string.');
   return x;
 }
 function format(x) {
   if (x === undefined || x === null) return undefined;
-  if (x !== 'json' && x !== 'csv') throw badInput('format은 json 또는 csv여야 합니다.');
+  if (x !== 'json' && x !== 'csv') throw badInput('format must be json or csv.');
   return x;
 }
 function strings(x, what) {
   if (x === undefined || x === null) return null;
-  if (!Array.isArray(x) || !x.every(s => typeof s === 'string')) throw badInput(`${what}은(는) 문자열 배열이어야 합니다.`);
+  if (!Array.isArray(x) || !x.every(s => typeof s === 'string')) throw badInput(`${what} must be an array of strings.`);
   return x;
 }
 const camel = s => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
@@ -136,18 +136,18 @@ export const deleteKey = guard(() => custody.remove());
 export const exportBackup = guard(() => custody.exportBackup());
 
 /** Validates (custody-web-v1 §3) and stores. Overwrites an existing key: the UI confirms first. */
-export const importBackup = guard(b => custody.importBackup(bytes(b, '백업 파일')));
+export const importBackup = guard(b => custody.importBackup(bytes(b, 'Backup file')));
 
 // ---------------------------------------------------------------- 9-10
 /** InspectResult (no secrets). */
 export const inspect = guard(async ({ input, format: f } = {}) =>
-  JSON.parse(wasm.inspect(bytes(input, '입력 파일'), format(f))));
+  JSON.parse(wasm.inspect(bytes(input, 'Input file'), format(f))));
 
 /** `{marked, evidenceJson, evidenceId, summary}`. The input is never modified. */
 export const protect = guard(async ({ input, format: f, datasetId, n, markerFields, exclusions, passphrase } = {}) => {
-  bytes(input, '입력 파일');
-  text(datasetId, '데이터셋 ID');
-  if (!Number.isInteger(n) || n < 1) throw badInput('canary 개수는 1 이상의 정수여야 합니다.');
+  bytes(input, 'Input file');
+  text(datasetId, 'Dataset ID');
+  if (!Number.isInteger(n) || n < 1) throw badInput('The canary count must be an integer of at least 1.');
   // Parse first (no secrets): a bad file fails before the key is unlocked, and gives `rows`.
   const shape = JSON.parse(wasm.inspect(input, format(f)));
   const optionsJson = JSON.stringify({
@@ -175,7 +175,7 @@ export const anchor = guard(async () => {
 // ---------------------------------------------------------------- 12-13 (K needed)
 /** norea.check-report.v1 object. */
 export const check = guard(async ({ suspect, evidenceJson, passphrase } = {}) => {
-  bytes(suspect, '의심 사본');
+  bytes(suspect, 'Suspicious copy');
   wasm.verifyEvidence(evidenceText(evidenceJson)); // structure check before unlocking the key
   const report = await custody.withSecrets(masterK => wasm.check(suspect, masterK, evidenceJson), { passphrase });
   return JSON.parse(report);
@@ -183,11 +183,11 @@ export const check = guard(async ({ suspect, evidenceJson, passphrase } = {}) =>
 
 /** `{disclosureJson}` (norea.disclosure.v1). `indices` omitted = every matched canary. */
 export const disclose = guard(async ({ evidenceJson, suspect, indices, suspectMeta, passphrase } = {}) => {
-  bytes(suspect, '의심 사본');
+  bytes(suspect, 'Suspicious copy');
   wasm.verifyEvidence(evidenceText(evidenceJson));
   if (indices !== undefined && indices !== null &&
       (!Array.isArray(indices) || !indices.every(i => Number.isInteger(i) && i >= 0))) {
-    throw badDisclosure('indices는 0 이상의 정수 배열이어야 합니다.');
+    throw badDisclosure('indices must be an array of non-negative integers.');
   }
   const m = suspectMeta ?? {};
   const claim = k => (m[k] === undefined || m[k] === null ? '' : text(m[k], k));
@@ -212,13 +212,13 @@ export const verifyEvidence = guard(async evidenceJson =>
  * a thrown BAD_DISCLOSURE (or BAD_EVIDENCE) is a structural error (exit 2).
  */
 export const verifyDisclosure = guard(async (disclosureJson, suspect) =>
-  JSON.parse(wasm.verifyDisclosure(disclosureText(disclosureJson), bytes(suspect, '의심 사본'))));
+  JSON.parse(wasm.verifyDisclosure(disclosureText(disclosureJson), bytes(suspect, 'Suspicious copy'))));
 
 // ---------------------------------------------------------------- 16-17 UI helpers
 export const saveFile = guard(async (name, data, mime = 'application/octet-stream') => {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([bytes(data, '저장할 파일')], { type: mime }));
-  a.download = text(name, '파일 이름');
+  a.href = URL.createObjectURL(new Blob([bytes(data, 'File to save')], { type: mime }));
+  a.download = text(name, 'File name');
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
 });

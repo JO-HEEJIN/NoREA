@@ -263,7 +263,7 @@ fn ac3_unrelated_data() {
     }
 }
 
-/// AC11 (2차): independent data (dataset A seed 2..5, none of our canaries)
+/// AC11 (round 2): independent data (dataset A seed 2..5, none of our canaries)
 /// wrapped in {"data":[...]} -> matched 0, partial equal to the flat array.
 #[test]
 fn ac11_wrapped_independent_data() {
@@ -289,7 +289,7 @@ fn ac11_wrapped_independent_data() {
     }
 }
 
-/// AC12 (2차): nesting inside a row, rows as arrays, rows wrapped once more -> matched 32.
+/// AC12 (round 2): nesting inside a row, rows as arrays, rows wrapped once more -> matched 32.
 #[test]
 fn ac12_row_shapes() {
     let f = fixture();
@@ -313,7 +313,7 @@ fn ac12_row_shapes() {
     }
 }
 
-/// AC13 (2차): CSV evidence (markers are Str) against JSON numbers and HTML with commas.
+/// AC13 (round 2): CSV evidence (markers are Str) against JSON numbers and HTML with commas.
 #[test]
 fn ac13_csv_evidence_numeric_str_marker() {
     let f = fixture();
@@ -366,7 +366,7 @@ fn ac13_csv_evidence_numeric_str_marker() {
     assert_eq!(match_rows("X-731 면적 330.5㎡".as_bytes(), SuspectKind::Text, &rows, &m).matched, vec![0]);
 }
 
-/// AC14 (2차): alphanumeric boundary for every marker; &nbsp; decoded.
+/// AC14 (round 2): alphanumeric boundary for every marker; &nbsp; decoded.
 #[test]
 fn ac14_text_boundaries_and_nbsp() {
     let rows = vec![(0u32, row_from_json(&json!({"id": "P-217", "area_m2": 330.5})).unwrap())];
@@ -552,10 +552,10 @@ fn ac8_verify_disclosure() {
     assert!(r["disclosed"].as_array().unwrap().iter().all(|x| x["merkle_ok"] == true && x["matched"] == true));
     assert_eq!(r["suspect_hash_ok"], true);
     let st = r["statement"].as_str().unwrap();
-    assert!(st.starts_with("무결성: PASS"));
-    assert!(st.contains("이 증거는 생성 시점을 증명하지 않는다"), "no anchor -> time not proven");
-    assert!(st.contains("공개된 canary 32개 중 32개가 사본에서 재현되었다"));
-    assert!(st.contains("이것은 생성기 모델 기준의 상한이지 실제 세계 확률이 아니다"));
+    assert!(st.starts_with("Integrity: PASS"));
+    assert!(st.contains("This evidence does not prove when it was created."), "no anchor -> time not proven");
+    assert!(st.contains("Reproduced: 32 of 32 disclosed canaries were reproduced in the suspect copy."));
+    assert!(st.contains("This is an upper bound under the generator model, not a real-world probability."));
     let fp = &noreacore::evidence::sha256_hex(&B64.decode(&fixture().p.evidence.vk_b64).unwrap())[..16];
     assert!(st.contains(fp), "vk fingerprint");
 
@@ -566,7 +566,7 @@ fn ac8_verify_disclosure() {
     let r = verify(&t.to_string(), &suspect);
     assert_eq!(r["disclosed"][3]["merkle_ok"], false);
     assert_eq!(r["summary"]["merkle_ok"], 31);
-    assert!(r["statement"].as_str().unwrap().starts_with("무결성: FAIL"));
+    assert!(r["statement"].as_str().unwrap().starts_with("Integrity: FAIL"));
     // B2: a row that is not a canary at all, with the path of index 4
     let mut t = base.clone();
     let real = rows_of(&serde_json::from_str::<Value>(&fixture().original).unwrap())[0].clone();
@@ -588,7 +588,7 @@ fn ac8_verify_disclosure() {
     s2.push(b'\n');
     let r = verify(&d, &s2);
     assert_eq!(r["suspect_hash_ok"], false);
-    assert!(r["statement"].as_str().unwrap().contains("사본 해시 불일치"));
+    assert!(r["statement"].as_str().unwrap().contains("suspect hash mismatch"));
     // evidence signature changed -> whole FAIL
     let mut t = base.clone();
     let mut sig = B64.decode(t["evidence"]["sig_b64"].as_str().unwrap()).unwrap();
@@ -597,8 +597,8 @@ fn ac8_verify_disclosure() {
     let r = verify(&t.to_string(), &suspect);
     assert_eq!(r["evidence"]["signature_ok"], false);
     let st = r["statement"].as_str().unwrap();
-    assert!(st.starts_with("무결성: FAIL (증거(evidence) 검증 실패"), "{st}");
-    assert!(st.contains("서명: 유효하지 않다"));
+    assert!(st.starts_with("Integrity: FAIL (evidence does not verify"), "{st}");
+    assert!(st.contains("Signature: NOT valid"));
     println!("ac16 signature tampered verdict {}", r["verdict"]);
     assert_eq!(r["verdict"]["integrity_ok"], false);
     // signed count is what counts: changing canary_count breaks the signature
@@ -611,7 +611,7 @@ fn ac8_verify_disclosure() {
     let r = verify(&t.to_string(), &suspect);
     println!("ac16 zero disclosed verdict {}", r["verdict"]);
     assert_eq!(r["verdict"]["integrity_ok"], false);
-    assert!(r["statement"].as_str().unwrap().starts_with("무결성: FAIL"));
+    assert!(r["statement"].as_str().unwrap().starts_with("Integrity: FAIL"));
     // structural problems are errors
     for bad in [
         "not json".to_string(),
@@ -725,15 +725,15 @@ fn vector_evidence_examples() {
         let vr = verify_disclosure(&d, marked).unwrap();
         let vrv: Value = serde_json::from_str(&vr).unwrap();
         assert_eq!(vrv["summary"]["matched"], 2);
-        let prob = vrv["statement"].as_str().unwrap().lines().find(|l| l.starts_with("확률:")).unwrap().to_string();
+        let prob = vrv["statement"].as_str().unwrap().lines().find(|l| l.starts_with("Probability:")).unwrap().to_string();
         println!("ac15 {case} probability line:\n{prob}");
-        assert!(prob.contains("marker 3개 중 2개"), "{prob}");
+        assert!(prob.contains("2 of 3 markers"), "{prob}");
         assert!(prob.contains("2^-13.25"), "{prob}");
         assert!(prob.contains("C(3,2)=3"));
         // R: JSON 10 rows; CSV 11 records (the header record counts, shape-v1 §7.2)
         let r = if case == "json" { 10 } else { 11 };
-        assert!(prob.contains(&format!("R={r}개")) && prob.contains("n=4개"), "{prob}");
-        assert!(prob.contains(&format!("4·{r}·2^-13.25")));
+        assert!(prob.contains(&format!("R={r} suspect records")) && prob.contains("n=4 canaries"), "{prob}");
+        assert!(prob.contains(&format!("4*{r}*2^-13.25")));
         if case == "json" {
             println!("EXAMPLE check-report:\n{rep}");
             let mut dv: Value = serde_json::from_str(&d).unwrap();

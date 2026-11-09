@@ -27,7 +27,7 @@ const VERIFY: &str = env!("CARGO_BIN_EXE_norea-verify");
 const DS: &str = "test/cli-dataset-a";
 const N: u64 = 16;
 const TEST_FLAG: &str = "--i-know-this-is-for-testing";
-const REFUSAL: &str = "실제 키를 파일로 두지 마세요. 제품은 웹/앱의 custody를 씁니다";
+const REFUSAL: &str = "refused: --key-file requires --i-know-this-is-for-testing.\nDo not keep real keys in files. The product uses web/app custody.";
 
 fn key_k() -> [u8; 32] {
     std::array::from_fn(|i| (i as u8).wrapping_mul(37).wrapping_add(11))
@@ -282,13 +282,13 @@ fn verify_disclosure_pass_and_statement() {
     assert_eq!(o.code, 0, "{}", o.stderr);
     let out = &o.stdout;
     for need in [
-        "공개키 지문",
-        "이 증거는 생성 시점을 증명하지 않는다",
-        &format!("공개된 canary {N}개 중 {N}개가 사본에서 재현되었다"),
+        "Public key fingerprint",
+        "This evidence does not prove when it was created.",
+        &format!("Reproduced: {N} of {N} disclosed canaries were reproduced in the suspect copy."),
         "chain_verified: false",
-        "무결성: PASS",
-        "[PASS] 서명 / Signature",
-        "[N/A ] 시점 anchor",
+        "Integrity: PASS",
+        "[PASS] Signature",
+        "[N/A ] Time anchor",
         "-> PASS (exit 0)",
     ] {
         assert!(out.contains(need), "missing {need:?}");
@@ -351,15 +351,15 @@ fn tampering_exits_1() {
     fs::write(&suspect_path, &suspect).unwrap();
 
     for (name, d, s, fail_line) in [
-        ("signature bit", &sig_path, &f.suspect, "[FAIL] 서명 / Signature"),
+        ("signature bit", &sig_path, &f.suspect, "[FAIL] Signature"),
         ("merkle path element", &path_path, &f.suspect, "[FAIL] Merkle path"),
-        ("suspect 1 byte", &f.disclosure, &suspect_path, "[FAIL] 사본 SHA-256"),
+        ("suspect 1 byte", &f.disclosure, &suspect_path, "[FAIL] Suspect SHA-256"),
     ] {
         let o = run(VERIFY, &["disclosure", p(d), p(s)]);
-        println!("tamper {name:20} exit {} first statement line: {}", o.code, o.stdout.lines().find(|l| l.starts_with("무결성")).unwrap_or(""));
+        println!("tamper {name:20} exit {} first statement line: {}", o.code, o.stdout.lines().find(|l| l.starts_with("Integrity")).unwrap_or(""));
         assert_eq!(o.code, 1, "{name}");
         assert!(o.stdout.contains(fail_line), "{name}: {fail_line}");
-        assert!(o.stdout.contains("무결성: FAIL"), "{name}");
+        assert!(o.stdout.contains("Integrity: FAIL"), "{name}");
         let j = run(VERIFY, &["disclosure", p(d), p(s), "--json"]);
         assert_eq!(j.code, 1, "{name} --json");
     }
@@ -373,7 +373,7 @@ fn tampering_exits_1() {
     fs::write(&ev_path, ev.to_string()).unwrap();
     let o = run(VERIFY, &["evidence", p(&ev_path)]);
     assert_eq!(o.code, 1);
-    assert!(o.stdout.contains("[FAIL] 서명"));
+    assert!(o.stdout.contains("[FAIL] Signature"));
 }
 
 /// AC5: missing paths, broken JSON, wrong JSON -> exit 2, one error line, no backtrace.
@@ -488,7 +488,7 @@ fn evidence_with_foreign_anchor_fails() {
     let o = run(VERIFY, &["evidence", p(&path)]);
     println!("{}", o.stdout);
     assert_eq!(o.code, 1);
-    assert!(o.stdout.contains("[PASS] 서명"));
+    assert!(o.stdout.contains("[PASS] Signature"));
     assert!(o.stdout.contains("[FAIL] anchor 0 (rfc3161): imprint, genTime 2026-11-09T04:14:30Z"));
     let o = run(VERIFY, &["evidence", "--json", p(&path)]);
     assert_eq!(o.code, 1);
@@ -571,7 +571,7 @@ fn secret_scanner_detects_keys() {
     assert!(raws.iter().any(|r| raw.windows(r.len()).any(|w| w == r.as_slice())), "raw K detected");
 }
 
-// ---- WP-05 2차: claim options, --force, --created-claim, evidence --json
+// ---- WP-05 round 2: claim options, --force, --created-claim, evidence --json
 
 /// disclose with the three *_claim options and --created-claim: the claims are in
 /// the package and verification passes (exit 0). A bad created_claim is core BadInput (exit 2).
@@ -749,6 +749,6 @@ fn export_ots_readme() {
     assert_eq!(fs::read(export.join("anchor-0.ots")).unwrap(), proof);
     let readme = fs::read_to_string(export.join("README.txt")).unwrap();
     println!("--- ots README.txt ---\n{readme}");
-    assert!(readme.contains("OpenTimestamps 검증 명령은 WP-08에서 실제 proof로 확정한다. 이 파일은 proof 바이트 원본이다."));
+    assert!(readme.contains("The OpenTimestamps verify command is not fixed yet (pending a real proof). This file is the raw proof bytes."));
     assert!(!readme.contains("ots verify"));
 }

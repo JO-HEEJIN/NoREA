@@ -1,18 +1,21 @@
-# NoREA 구현 repo: 현재 상태 (STATE)
+# NoREA implementation repo: current state (STATE)
 
-이 파일은 항상 현재 시제다. 계획은 `tasks/todo.md`, 설계(규범)는 `/Users/mac/dev/derator/Fable_5_1/`(protocol/, CORE-API.md, adr/).
+Always present tense. Plans live in `tasks/todo.md`. The normative design is in `/Users/mac/dev/derator/Fable_5_1/` (protocol/, CORE-API.md, adr/); a copy is in `docs/design/` (Korean) with an English overview in `docs/DESIGN.md`.
 
-## 무엇인가
+The top section (through "What works now") is in English. Everything from "### error" down is in Korean.
 
-NoREA는 운영자가 자기 소유의 공개 데이터에 canary를 심고, ML-DSA-65로 서명하고 외부 시점 anchor로 고정한 증거를 남겨, 운영자가 직접 가져온 의심 사본에서 canary를 대조해 복제를 증명하는 방어 제품이다. ProvGuard에서 재설계했고 호환성은 없다(ADR-0010).
+## What it is
 
-## 지금 동작하는 것
+NoREA is a defensive tool. An operator plants canaries in their own public data, leaves evidence signed with ML-DSA-65 and pinned by an external time anchor, then checks a suspect copy the operator brings in and proves the copying. Redesigned from ProvGuard, no compatibility (ADR-0010).
 
-Phase 1 구현 중. 로직이 있는 모듈은 `error`, `table`(WP-01), `norm`, `shape`, `canary`(WP-02), `merkle`, `blob`, `sign`, `evidence`(WP-03), `check`, `disclose`(WP-04), `anchor`(WP-08 최소 슬라이스: RFC 3161, CLI 경로)이다. CLI(WP-05)와 웹 바인딩 `norea-web`(WP-06)은 core를 부르기만 한다. 동결 vector `tests/vectors/norea-evidence-v1.json`이 생성되어 있고 `core/tests/vectors.rs`가 대조한다. `norea.evidence.v1`과 `record.shape.v1`은 2026-11-09 머리 수락으로 Frozen이다. `norea.disclosure.v1`과 `norea.disclosure-report.v1`(disclosure-v1 §2~§4)도 WP-04 수락으로 Frozen이다. `norea.custody-backup.v1`(custody-web-v1)과 platform-contract v1(17개 함수, 에러 코드 12개)도 WP-06 수락으로 Frozen이다. Phase 1 프로토콜 5개가 모두 동결 상태다. crate root에 `Key32 = [u8; 32]`가 있다.
+## What works now
 
-- 뼈대(WP-00): workspace `core`(noreacore), `web`(norea-web), `cli`(norea-cli). CLI 두 바이너리(norea-verify, norea)는 WP-05, 웹 바인딩·custody·플랫폼 계약은 WP-06에서 구현되어 있다(아래 절).
-- `web/public/`: `custody.js`, `platform-web.js`, `platform.js`는 NoREA 계약 구현이고, `index.html`, `app.js`, `ui-text.js`, `style.css`는 WP-07 웹 UI다(아래 "웹 UI" 절). `index.html`의 CSP meta와 `_headers`는 WP-00 그대로다.
-- toolchain은 `rust-toolchain.toml`(1.99.1 + wasm32-unknown-unknown)로 고정, node는 22. clippy component가 설치되어 있다.
+Phase 1 in progress. Modules with logic: `error`, `table` (WP-01), `norm`, `shape`, `canary` (WP-02), `merkle`, `blob`, `sign`, `evidence` (WP-03), `check`, `disclose` (WP-04), `anchor` (WP-08 minimal slice: RFC 3161, CLI path). The CLI (WP-05) and the web bindings `norea-web` (WP-06) only call core. The frozen vector `tests/vectors/norea-evidence-v1.json` exists and `core/tests/vectors.rs` checks it. `norea.evidence.v1` and `record.shape.v1` are Frozen (head acceptance, 2026-11-09). `norea.disclosure.v1` and `norea.disclosure-report.v1` (disclosure-v1 §2 to §4) are Frozen (WP-04 acceptance). `norea.custody-backup.v1` (custody-web-v1) and platform-contract v1 (17 functions, 12 error codes) are Frozen (WP-06 acceptance). All five Phase 1 protocols are frozen. The crate root has `Key32 = [u8; 32]`.
+
+- Scaffold (WP-00): workspace `core` (noreacore), `web` (norea-web), `cli` (norea-cli). The two CLI binaries (norea-verify, norea) are implemented in WP-05; web bindings, custody and the platform contract in WP-06 (sections below).
+- `web/public/`: `custody.js`, `platform-web.js`, `platform.js` implement the NoREA contract; `index.html`, `app.js`, `ui-text.js`, `style.css` are the WP-07 web UI (see the "web UI" section). The CSP meta in `index.html` and `_headers` are unchanged from WP-00.
+- Toolchain pinned by `rust-toolchain.toml` (1.99.1 + wasm32-unknown-unknown), node 22. The clippy component is installed.
+- Demo: `scripts/demo.sh` runs on `demo/data/sf-listings-synthetic.csv` (synthetic San Francisco listings, from `scripts/demo-mkdata.mjs`) by default; `NOREA_DEMO_INPUT` switches to `demo/data/world-cities.csv` (GeoNames, CC BY 4.0) or `demo/data/legal-dong-code.csv` (Korean MOLIT); `scripts/demo-crawler.mjs` reads quoted CSV; `NOREA_DEMO_NO_BUILD=1` skips the release build.
 
 ### error (`core/src/error.rs`)
 `noreacore::Error { code: ErrorCode, message: String }`, `ErrorCode` 8개(BadInput, NoMarker, CanaryExhausted, BadEvidence, BadSignature, BadBlob, BadDisclosure, BadAnchor). crate root에서 re-export한다. 메시지는 영어이고 입력 값, 비밀, 경로를 담지 않는다(serde_json 에러 문구는 값을 인용할 수 있어 그대로 넘기지 않고 line/column만 쓴다).

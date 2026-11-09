@@ -1,19 +1,19 @@
-# norea-verify: 감정인용 사용법
+# norea-verify: for whoever has to check our claims
 
-`norea-verify`는 NoREA disclosure package를 **비밀 없이, 오프라인으로** 검증하는 도구다(ADR-0011). 운영자의 마스터 키나 서명키가 필요 없고 네트워크에 접속하지 않는다. 검증 규칙은 전부 `noreacore`에 있고 이 도구는 파일을 읽어 결과를 보여 줄 뿐이다.
+`norea-verify` checks a NoREA disclosure package offline, with no secrets (ADR-0011). You don't need our master key or signing key. It never touches the network. All the rules live in `noreacore`; this tool just reads files and prints what core says.
 
-운영자가 제출하는 것은 두 파일이다.
-- `disclosure.json`: `norea.disclosure.v1`. 서명된 evidence 전체, 의심 사본의 SHA-256, 공개한 canary row와 Merkle path.
-- 의심 사본 파일: 운영자가 포착했다고 주장하는 상대방 사본 그대로(JSON, CSV, HTML, 텍스트).
+The operator hands you two files:
+- `disclosure.json` (`norea.disclosure.v1`): the full signed evidence, the SHA-256 of the suspect copy, and the disclosed canary rows with their Merkle paths.
+- The suspect file: the other party's copy, exactly as the operator says they captured it (JSON, CSV, HTML or plain text).
 
-## 빌드
+## Build
 
 ```
 cargo build --release --locked -p norea-cli
 # target/release/norea-verify, target/release/norea
 ```
 
-## 명령
+## Commands
 
 ```
 norea-verify disclosure <disclosure.json> <suspect-file> [--json] [--export-anchors DIR]
@@ -26,16 +26,16 @@ norea-verify evidence <evidence.json> [--json]
 norea-verify disclosure disclosure.json suspect.json
 ```
 
-출력은 섹션별 `PASS` / `FAIL` / `N/A`이고 한국어와 영어를 같이 쓴다.
+You get `PASS` / `FAIL` / `N/A` per section:
 
-1. Evidence: ML-DSA-65 서명(필드 규칙 포함), `evidence_id = SHA-256(payload)`, canary blob 해시.
-2. 시점 anchor: rfc3161 anchor는 토큰의 imprint(= anchor_subject)와 genTime을 검증해 `[PASS|FAIL]`로 표시한다. 토큰이 없거나 파싱되지 않는 anchor와 다른 kind(ots)는 `N/A`다. 검증된 anchor의 imprint가 틀리면(다른 증거의 anchor) FAIL이다.
-3. 사본: 사본 파일의 SHA-256이 disclosure의 `suspect.sha256`과 같은가.
-4. 공개된 canary: 각 row의 Merkle path가 **서명된** `canary_root`에 닿는가(count는 서명된 `canary_count`), 그리고 그 row가 사본에서 다시 찾아지는가(재현). 항목별 `index`, `found` 필드.
-5. 판정: `verdict.integrity_ok`, `verdict.all_reproduced`.
-6. Statement: verifier가 생성한 한국어 문장 원문. 공개키 지문(SHA-256(vk) 앞 16 hex), 시점 문구, "공개된 canary N개 중 M개가 사본에서 재현되었다", 확률 상한 줄, `*_claim`이 미검증이라는 문장이 들어 있다. 감정서에 인용할 때는 이 원문을 쓴다.
+1. Evidence: ML-DSA-65 signature (field rules included), `evidence_id = SHA-256(payload)`, canary blob hash.
+2. Time anchors: for rfc3161 we check the token imprint (= anchor_subject) and read genTime, shown as `[PASS|FAIL]`. A missing or unparseable token, or another kind (ots), is `N/A`. A checked anchor with the wrong imprint is someone else's anchor, so it FAILs.
+3. Suspect copy: does the file's SHA-256 equal `suspect.sha256` in the disclosure?
+4. Disclosed canaries: does each row's Merkle path reach the **signed** `canary_root` (using the signed `canary_count`), and does the row show up again in the suspect copy (reproduced)? Per item: `index`, `found`.
+5. Verdict: `verdict.integrity_ok`, `verdict.all_reproduced`.
+6. Statement: the verifier's own text, verbatim. It has the public key fingerprint (first 16 hex of SHA-256(vk)), the time line, "Reproduced: M of N disclosed canaries were reproduced in the suspect copy.", the probability upper bound, and a line saying the `*_claim` fields are unverified. If you quote us in a report, quote this.
 
-`--json`은 `norea.disclosure-report.v1` JSON을 가공 없이 stdout에 한 줄로 쓴다(끝에 줄바꿈 하나). 다른 출력은 stdout에 섞이지 않는다.
+`--json` prints the `norea.disclosure-report.v1` JSON untouched, one line, one trailing newline. Nothing else goes to stdout.
 
 ### evidence
 
@@ -43,46 +43,46 @@ norea-verify disclosure disclosure.json suspect.json
 norea-verify evidence evidence.json
 ```
 
-disclosure 없이 `norea.evidence.v1` 하나만 검증한다(서명, evidence_id, blob 해시, anchor). `--json`은 core의 `EvidenceVerification` JSON(`signature_ok, evidence_id_ok, blob_hash_ok, anchors, has_anchors`)을 그대로 쓴다.
+Checks one `norea.evidence.v1` on its own: signature, evidence_id, blob hash, anchors. `--json` prints core's `EvidenceVerification` JSON (`signature_ok, evidence_id_ok, blob_hash_ok, anchors, has_anchors`) as is.
 
-## 종료 코드
+## Exit codes
 
-| 명령 | 0 | 1 | 2 |
+| Command | 0 | 1 | 2 |
 |---|---|---|---|
-| `disclosure` | `verdict.integrity_ok && verdict.all_reproduced` | 그 외(서명, evidence_id, blob 해시, 사본 해시, Merkle, 재현 중 하나라도 실패, 공개 0개, 또는 검증된 anchor의 imprint 불일치) | 입력 오류: 파일 없음, UTF-8 아님, JSON 아님, schema나 필드 형식, index 순서, `--export-anchors` 대상 파일이 이미 있음 |
-| `evidence` | `signature_ok && evidence_id_ok && blob_hash_ok && anchors_consistent` | 그 외(검증된 anchor의 imprint 불일치 포함) | 파일 없음, JSON 아님, evidence 구조 아님 |
+| `disclosure` | `verdict.integrity_ok && verdict.all_reproduced` | Anything else: a failed signature, evidence_id, blob hash, suspect hash, Merkle path or reproduction; zero disclosed; or a checked anchor with a wrong imprint | Input error: missing file, not UTF-8, not JSON, bad schema or field format, index order, an `--export-anchors` target that already exists |
+| `evidence` | `signature_ok && evidence_id_ok && blob_hash_ok && anchors_consistent` | Anything else (including a checked anchor with a wrong imprint) | Missing file, not JSON, not an evidence object |
 
-두 명령 모두 검증된 anchor(`error` 없음)의 imprint가 하나라도 틀리면 종료 1이다(`anchors_consistent`, disclosure-v1 §4). `N/A` anchor는 종료 코드에 넣지 않는다.  오류는 stderr에 한 줄(`norea-verify: error: ...`)이고 스택 트레이스는 나오지 않는다.
+In both commands, one checked anchor (no `error`) with a wrong imprint means exit 1 (`anchors_consistent`, disclosure-v1 §4). `N/A` anchors don't count. Errors are one line on stderr (`norea-verify: error: ...`). No stack traces.
 
-## TSA 토큰 직접 검증 (`--export-anchors DIR`)
+## Check the TSA tokens yourself (`--export-anchors DIR`)
 
 ```
 norea-verify disclosure disclosure.json suspect.json --export-anchors anchors/
 ```
 
-`DIR`에 새 파일을 만든다(이미 있으면 덮어쓰지 않고 종료 코드 2).
-- `anchor-<k>.tsr`: rfc3161 anchor k의 TimeStampToken(DER).
-- `anchor-<k>.ots`: ots anchor k의 proof 바이트. OpenTimestamps 검증 명령은 WP-08에서 실제 proof로 확정한다. 이 파일은 proof 바이트 원본이다.
-- `subject.bin`: anchor_subject 32 B = SHA-256(signing payload || 0x0A || signature).
-- `README.txt`: 아래 명령에 실제 값을 채운 안내.
+Writes new files into `DIR`. It refuses to overwrite anything (exit 2).
+- `anchor-<k>.tsr`: TimeStampToken (DER) of rfc3161 anchor k.
+- `anchor-<k>.ots`: proof bytes of ots anchor k. We haven't pinned the OpenTimestamps verify command yet (waiting on a real proof). The file is the raw proof.
+- `subject.bin`: anchor_subject, 32 B = SHA-256(signing payload || 0x0A || signature).
+- `README.txt`: the command below with real values filled in.
 
 ```
 openssl ts -verify -digest <anchor_subject_hex> -in anchor-0.tsr -token_in -CAfile <TSA CA bundle>
 ```
 
-CA bundle은 해당 TSA가 공개한 것을 감정인이 직접 구한다. 이 단계는 자동화하지 않는다(disclosure-v1 §5).
+Get the CA bundle from the TSA yourself. We deliberately don't automate this step (disclosure-v1 §5). Trusting our tool to fetch the thing that checks our tool would be a bit circular.
 
-## 이 도구가 검증하지 않는 것
+## What this tool does not verify
 
-- **TSA 인증서 체인.** 리포트의 `chain_verified`는 항상 `false`다. 토큰을 내보내 `openssl ts -verify`로 직접 확인해야 한다.
-- **TSA 토큰의 CMS 서명과 인증서 체인.** rfc3161은 imprint와 genTime만 읽는다(`chain_verified: false`). 체인은 `--export-anchors` 후 openssl로 직접 확인한다. OpenTimestamps anchor는 아직 검증하지 않는다(`N/A`).
-- **`*_claim` 필드.** `created_claim`(운영자 기기 시계), `suspect.source_claim`, `captured_claim`, `capture_method_claim`은 운영자 주장이다. 사본을 언제, 어디서, 어떻게 포착했는지는 공증, 플랫폼 타임스탬프, 웹 아카이브 같은 외부 증거로 따로 보강해야 한다.
-- **shape 정보.** 확률 줄의 근거인 `shape`는 운영자가 disclosure에 넣은 것이고 이 도구가 검증하지 않았다.
-- **실제 세계 확률.** 확률 줄은 canary 생성기 모델 기준의 상한이다. 실제 데이터에서 우연히 같은 값이 나올 확률이 아니다.
-- **공개되지 않은 canary.** 공개하지 않은 canary는 암호화된 blob 안에 있고 이 도구는 그 해시만 대조한다.
-- **사본이 운영자 데이터에서 유래했다는 법적 판단.** 이 도구는 기술적 사실(서명, 해시, Merkle, 재현)만 보고한다.
+- **TSA certificate chain.** `chain_verified` is always `false`. Export the tokens and run `openssl ts -verify`.
+- **CMS signature and cert chain of TSA tokens.** For rfc3161 we only read imprint and genTime. Check the chain with openssl after `--export-anchors`. OpenTimestamps anchors aren't verified yet (`N/A`).
+- **`*_claim` fields.** `created_claim` (the operator's device clock), `suspect.source_claim`, `captured_claim`, `capture_method_claim` are operator claims. When, where and how the copy was captured needs outside evidence: notarization, platform timestamps, web archives.
+- **Shape info.** The `shape` behind the probability line comes from the operator's disclosure. We don't verify it.
+- **Real-world probability.** The probability line is an upper bound under the canary generator model. It is not the odds of the same values showing up by chance in real data.
+- **Undisclosed canaries.** They stay inside the encrypted blob. We only check its hash.
+- **Whether the copy legally derives from the operator's data.** That's for a human. We report technical facts: signature, hashes, Merkle, reproduction.
 
-## `norea` (개발·테스트용, 제품 아님)
+## `norea` (dev and testing only, not the product)
 
 ```
 norea inspect <input> [--format json|csv]
@@ -92,10 +92,10 @@ norea disclose <evidence.json> <suspect> --key-file K.bin [--indices 1,2,3] [--s
 norea anchor <evidence.json> --tsa URL [--ots]
 ```
 
-- 키 파일(`K.bin`, `S.bin`)은 raw 32 B이고 **테스트 전용**이다. `--i-know-this-is-for-testing`이 없으면 거부하고 종료 코드 2. 실제 키를 파일로 두지 않는다. 제품은 웹/앱의 custody를 쓴다.
-- `protect`는 입력 파일을 바꾸지 않고 `DIR/<stem>.marked.<json|csv>`와 `DIR/<stem>.evidence.json`을 새로 만든다. 둘 중 하나라도 이미 있으면 아무것도 쓰지 않고 종료 코드 2. `--exclusions`는 한 줄에 값 하나인 UTF-8 파일(빈 줄 무시).
-- `created_claim`은 `--created-claim`으로 주거나, 생략하면 이 컴퓨터의 시계(UTC)다. 주장일 뿐 시점 증거가 아니다. 형식이 틀리면 core가 거부하고 종료 코드 2.
-- `--source-claim`, `--captured-claim`, `--capture-method-claim`은 disclosure의 `suspect.*_claim`에 그대로 들어간다. 운영자 주장이며 아무도 검증하지 않는다(core도 형식을 검사하지 않는다).
-- `check`는 `norea.check-report.v1` JSON을 stdout에 쓴다(종료 코드 0). `disclose`는 `--out`에 새 파일을 쓴다(이미 있으면 종료 코드 2). `disclose`는 matched가 아닌 canary를 공개하지 않는다. `--force`를 주면 공개하고, 그 항목은 검증에서 NOT REPRODUCED가 되어 `norea-verify`가 종료 코드 1을 낸다.
-- `anchor --tsa URL`: anchor_subject로 TimeStampReq를 만들어 시스템 `curl`로 POST하고, imprint를 확인한 뒤 `<stem>.anchored.json`을 새로 쓴다(입력 불변). 실패(curl 없음, 네트워크, 응답 불량)는 종료 2. `--ots`는 아직 구현되지 않았다(네트워크 없이 종료 3).
-- 키, K_d, seed는 어떤 출력에도 쓰지 않고 사용 후 메모리에서 0으로 덮는다.
+- Key files (`K.bin`, `S.bin`) are raw 32 B and **for testing only**. Without `--i-know-this-is-for-testing` we refuse and exit 2. Don't keep real keys in files. The product uses web/app custody.
+- `protect` never touches the input. It creates `DIR/<stem>.marked.<json|csv>` and `DIR/<stem>.evidence.json`. If either exists, it writes nothing and exits 2. `--exclusions` is a UTF-8 file, one value per line, blank lines ignored.
+- `created_claim` comes from `--created-claim`, or this machine's clock (UTC) if you leave it out. It's a claim, not proof of time. A malformed value is refused by core (exit 2).
+- `--source-claim`, `--captured-claim`, `--capture-method-claim` go verbatim into `suspect.*_claim`. Operator claims. Nobody verifies them, and core doesn't even check the format.
+- `check` prints `norea.check-report.v1` JSON to stdout (exit 0). `disclose` writes a new file at `--out` (exit 2 if it exists). `disclose` won't disclose an unmatched canary. `--force` makes it, and that item then shows up as NOT REPRODUCED, so `norea-verify` exits 1. You asked for it.
+- `anchor --tsa URL`: builds a TimeStampReq from anchor_subject, POSTs it with system `curl`, checks the imprint, writes a new `<stem>.anchored.json` (input unchanged). No curl, network trouble or a bad response: exit 2. `--ots` isn't implemented yet (exit 3, no network).
+- Keys, K_d and seeds never appear in any output and are zeroed in memory after use.
